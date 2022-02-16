@@ -33,8 +33,8 @@ INCLUDES += \
 
 # FLAGS (without DEFINES and INCLUDES)
 
-CXXFLAGS = -std=c++17 -Wmissing-declarations -Wall -Wextra -Wno-format-security
-#-mavx2 -mbmi2 -mfma
+CXXFLAGS = -std=c++17 -Wmissing-declarations -Wall -Wextra -Wno-format-security -mavx
+	#-mavx2 -mbmi2 -mfma
 ifdef DEBUG
     CXXFLAGS += -O0 -g
 else

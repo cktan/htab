@@ -3,7 +3,8 @@
 //#include <Common/HashTable/HashMap.h>
 //#include <Common/HashTable/HashTable.h>
 
-#include <limits>  // fixes lack in Common/UInt128.h
+#include <limits>  // fixes lack in Common/UInt128.h, must be before it
+//TODO: fix Common/UInt128.h better for that
 #include <type_traits>
 #include <Common/UInt128.h>
 #include <common/StringRef.h>
