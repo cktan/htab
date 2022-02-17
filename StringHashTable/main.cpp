@@ -113,33 +113,6 @@ int main(int /*argc*/, char */*argv*/[]) {
 
 
 /* ==TRASH==
-
-
-    {
-      StringHashTable::iterator where = sht.find(sr0);
-      bool contained = sht.end() != where;
-      std::cout << std::boolalpha << "sr0 contained = " << contained << std::endl;
-    }
-    {
-      StringHashTable::iterator where = sht.find(sr1);
-      bool contained = sht.end() != where;
-      std::cout << std::boolalpha << "sr1 contained = " << contained << std::endl;
-    }
-
-    {
-      StringRef empty;
-      auto [where, inserted] = sht.insert(empty);
-      std::cout << std::boolalpha << "empty inserted = " << inserted << std::endl;
-      std::cout << "sht.size() = " << sht.size() << std::endl;
-    }
-    {
-      StringRef empty;
-      auto [where, inserted] = sht.insert(empty);
-      std::cout << std::boolalpha << "empty inserted = " << inserted << std::endl;
-      std::cout << "sht.size() = " << sht.size() << std::endl;
-    }
-
-//#include <Common/HashTable/StringHashTable.h>
     std::cout << "sizeof(std::string) = " << sizeof(std::string) << std::endl;
     std::cout << "sizeof(std::string_view) = " << sizeof(std::string_view) << std::endl;
 std::cout << "sizeof(StringKey0) = " << sizeof(StringKey0) << std::endl;
