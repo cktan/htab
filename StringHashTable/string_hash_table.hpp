@@ -199,37 +199,16 @@ public:
 
   using value_type = StringRef;
 
-  // Public interface cannot return iterator like STL containers (e.g.
-  // iterator unordered_set::find(const key_type &k);), due to implementation
-  // details - there are several internal containers of different value/key
-  // types. Following STL style we return this wrapper. However, we don't use
-  // iterator typedef: using iterator = value_holder
-  // to explicitly mark that there is temporal value instead of iterator
-  // (see value_holder::value).
-  class value_holder {
-  public:
-    value_holder() : value() {}
-    template <typename Iterator>
-    value_holder(const Iterator &it) : value(detail::toStringRef(*it)) {}
-    auto *operator->() { return this; }
-    template <typename Iterator>
-    void operator=(const Iterator &it) { value = detail::toStringRef(*it); }
-    // Only used to check if it's end() in find
-    bool operator==(const value_holder &that) const {
-      return value.size == 0 && that.value.size == 0;
-    }
-    bool operator!=(const value_holder &that) const { return !(*this == that); }
-  private:
-    StringRef value;
-  };
+  bool empty() const {
+    return m0.empty() && m1.empty() && m2.empty() && m3.empty() && ms.empty();
+  }
+  size_t size() const {
+    return m0.size() + m1.size() + m2.size() + m3.size() + ms.size();
+  }
 
-  value_holder end() { return value_holder(); }
-  size_t size() const { return m0.size() + m1.size() + m2.size() + m3.size() + ms.size(); }
-  bool empty() const { return m0.empty() && m1.empty() && m2.empty() && m3.empty() && ms.empty(); }
-
-  inline value_holder ALWAYS_INLINE find(value_type v);
-  inline std::pair<value_holder, bool> ALWAYS_INLINE insert(value_type v);
-  inline size_t ALWAYS_INLINE erase(value_type v);
+  inline bool ALWAYS_INLINE contains(value_type v);
+  inline bool ALWAYS_INLINE insert(value_type v);
+  inline bool ALWAYS_INLINE erase(value_type v);
 
   template<typename F>
   void for_each(F f);
@@ -246,25 +225,23 @@ private:
 
   struct find_callable {
     template <typename Map>
-    value_holder ALWAYS_INLINE operator()(Map &map, const typename Map::key_type &key) {
-      typename Map::iterator it = map.find(key);
-      return it != map.end() ? value_holder(it) : value_holder();
+    bool ALWAYS_INLINE operator()(Map &map, const typename Map::key_type &key) {
+      return map.end() != map.find(key);
     }
   };
 
   struct insert_callable {
     template <typename Map>
-    std::pair<value_holder, bool> ALWAYS_INLINE operator()(Map &map,
-                                                          const typename Map::key_type &key) {
+    bool ALWAYS_INLINE operator()(Map &map, const typename Map::key_type &key) {
       auto [it, inserted] = map.insert(key);
-      return {it != map.end() ? value_holder(it) : value_holder(), inserted};
+      return inserted;
     }
   };
 
   struct erase_callable {
     template <typename Map>
-    size_t ALWAYS_INLINE operator()(Map &map, const typename Map::key_type &key) {
-      return map.erase(key);
+    bool ALWAYS_INLINE operator()(Map &map, const typename Map::key_type &key) {
+      return 0 != map.erase(key);
     }
   };
 };
@@ -323,18 +300,15 @@ decltype(auto) string_hash_table_t::dispatch(value_type x, Func func) {
   }
 }
 
-// std: iterator find(const key_type &k);
-string_hash_table_t::value_holder string_hash_table_t::find(value_type v) {
+bool string_hash_table_t::contains(value_type v) {
   return dispatch(v, find_callable());
 }
 
-// std: pair<iterator, bool> insert(const value_type &val);
-std::pair<string_hash_table_t::value_holder, bool> string_hash_table_t::insert(value_type v) {
+bool string_hash_table_t::insert(value_type v) {
   return dispatch(v, insert_callable());
 }
 
-// std: size_type erase(const key_type &k);
-inline size_t string_hash_table_t::erase(value_type v) {
+bool string_hash_table_t::erase(value_type v) {
   return dispatch(v, erase_callable());
 }
 

@@ -23,65 +23,65 @@ int main(int /*argc*/, char */*argv*/[]) {
     StringRef sr3(s3, sizeof(s3) - 1);
     StringRef sr4(s4, sizeof(s4) - 1);
 
-    std::pair<string_hash_table_t::value_holder, bool> insertion;
+    bool inserted;
 
     // Insert values
     std::cout << "Insert values:\n";
 
-    insertion = sht.insert(sr0);
-    std::cout << std::boolalpha << "sr0 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr0);
+    std::cout << std::boolalpha << "sr0 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr1);
-    std::cout << std::boolalpha << "sr1 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr1);
+    std::cout << std::boolalpha << "sr1 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr2);
-    std::cout << std::boolalpha << "sr2 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr2);
+    std::cout << std::boolalpha << "sr2 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr3);
-    std::cout << std::boolalpha << "sr3 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr3);
+    std::cout << std::boolalpha << "sr3 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr4);
-    std::cout << std::boolalpha << "sr4 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr4);
+    std::cout << std::boolalpha << "sr4 inserted = " << inserted << std::endl;
 
     std::cout << "size = " << sht.size() << std::endl;
 
     // Insert again
     std::cout << "Insert values again:\n";
 
-    insertion = sht.insert(sr0);
-    std::cout << std::boolalpha << "sr0 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr0);
+    std::cout << std::boolalpha << "sr0 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr1);
-    std::cout << std::boolalpha << "sr1 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr1);
+    std::cout << std::boolalpha << "sr1 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr2);
-    std::cout << std::boolalpha << "sr2 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr2);
+    std::cout << std::boolalpha << "sr2 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr3);
-    std::cout << std::boolalpha << "sr3 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr3);
+    std::cout << std::boolalpha << "sr3 inserted = " << inserted << std::endl;
 
-    insertion = sht.insert(sr4);
-    std::cout << std::boolalpha << "sr4 inserted = " << insertion.second << std::endl;
+    inserted = sht.insert(sr4);
+    std::cout << std::boolalpha << "sr4 inserted = " << inserted << std::endl;
 
     // Find values
 
     std::cout << "Find values:\n";
-    string_hash_table_t::value_holder where;
+    bool contained;
 
-    where = sht.find(sr0);
-    std::cout << std::boolalpha << "sr0 contained = " << (sht.end() != where) << std::endl;
+    contained = sht.contains(sr0);
+    std::cout << std::boolalpha << "sr0 contained = " << contained << std::endl;
 
-    where = sht.find(sr1);
-    std::cout << std::boolalpha << "sr1 contained = " << (sht.end() != where) << std::endl;
+    contained = sht.contains(sr1);
+    std::cout << std::boolalpha << "sr1 contained = " << contained << std::endl;
 
-    where = sht.find(sr2);
-    std::cout << std::boolalpha << "sr2 contained = " << (sht.end() != where) << std::endl;
+    contained = sht.contains(sr2);
+    std::cout << std::boolalpha << "sr2 contained = " << contained << std::endl;
 
-    where = sht.find(sr3);
-    std::cout << std::boolalpha << "sr3 contained = " << (sht.end() != where) << std::endl;
+    contained = sht.contains(sr3);
+    std::cout << std::boolalpha << "sr3 contained = " << contained << std::endl;
 
-    where = sht.find(sr4);
-    std::cout << std::boolalpha << "sr4 contained = " << (sht.end() != where) << std::endl;
+    contained = sht.contains(sr4);
+    std::cout << std::boolalpha << "sr4 contained = " << contained << std::endl;
 
     // Print values
 
