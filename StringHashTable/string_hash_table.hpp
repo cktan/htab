@@ -41,12 +41,13 @@
   case 23: \
   case 24
 
+namespace detail {
+
 struct StringKey0 {};
 
 using StringKey8 = uint64_t;
 
-struct StringKey16
-{
+struct StringKey16 {
   uint64_t a;
   uint64_t b;
 
@@ -55,16 +56,14 @@ struct StringKey16
   bool operator==(const uint64_t rhs) const { return a == rhs && b == 0; }
   bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
 
-  StringKey16 & operator=(const uint64_t rhs)
-  {
+  StringKey16 & operator=(const uint64_t rhs) {
     a = rhs;
     b = 0;
     return *this;
   }
 };
 
-struct StringKey24
-{
+struct StringKey24 {
   uint64_t a;
   uint64_t b;
   uint64_t c;
@@ -74,8 +73,7 @@ struct StringKey24
   bool operator==(const uint64_t rhs) const { return a == rhs && b == 0 && c == 0; }
   bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
 
-  StringKey24 & operator=(const uint64_t rhs)
-  {
+  StringKey24 & operator=(const uint64_t rhs) {
     a = rhs;
     b = 0;
     c = 0;
@@ -150,8 +148,6 @@ struct StringHashTableHash
   }
 };
 
-namespace detail {
-
 template <typename T>
 class empty_value_hash_table_t {
 public:
@@ -210,10 +206,10 @@ public:
   public:
     value_holder() : value() {}
     template <typename Iterator>
-    value_holder(const Iterator &it) : value(toStringRef(*it)) {}
+    value_holder(const Iterator &it) : value(detail::toStringRef(*it)) {}
     auto *operator->() { return this; }
     template <typename Iterator>
-    void operator=(const Iterator &it) { value = toStringRef(*it); }
+    void operator=(const Iterator &it) { value = detail::toStringRef(*it); }
     // Only used to check if it's end() in find
     bool operator==(const value_holder &that) const {
       return value.size == 0 && that.value.size == 0;
@@ -232,11 +228,11 @@ public:
   inline size_t ALWAYS_INLINE erase(value_type v);
 
 private:
-  detail::empty_value_hash_table_t<StringKey0> m0;
-  std::unordered_set<StringKey8,  StringHashTableHash> m1;
-  std::unordered_set<StringKey16, StringHashTableHash> m2;
-  std::unordered_set<StringKey24, StringHashTableHash> m3;
-  std::unordered_set<StringRef,   StringHashTableHash> ms;
+  detail::empty_value_hash_table_t<detail::StringKey0> m0;
+  std::unordered_set<detail::StringKey8,  detail::StringHashTableHash> m1;
+  std::unordered_set<detail::StringKey16, detail::StringHashTableHash> m2;
+  std::unordered_set<detail::StringKey24, detail::StringHashTableHash> m3;
+  std::unordered_set<StringRef,           detail::StringHashTableHash> ms;
 
   template <typename Func>
   inline decltype(auto) ALWAYS_INLINE dispatch(value_type x, Func func);
@@ -274,14 +270,14 @@ decltype(auto) string_hash_table_t::dispatch(value_type x, Func func) {
   // 3. [DELETED] Combine hash computation along with key loading
   // 4. Funcs are named callables that can be force_inlined
   // NOTE: It relies on Little Endianness and SSE4.2
-  static constexpr StringKey0 key0;
+  static constexpr detail::StringKey0 key0;
   size_t sz = x.size;
   const char *p = x.data;
   char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
   union {
-    StringKey8 k8;
-    StringKey16 k16;
-    StringKey24 k24;
+    detail::StringKey8 k8;
+    detail::StringKey16 k16;
+    detail::StringKey24 k24;
     uint64_t n[3];
   };
   switch (sz) {
