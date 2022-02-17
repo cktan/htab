@@ -8,7 +8,11 @@
 #include <unordered_set>
 #include <smmintrin.h>
 
-#define ALWAYS_INLINE __attribute__((__always_inline__))
+#ifdef DEBUG
+  #define ALWAYS_INLINE
+#else
+  #define ALWAYS_INLINE __attribute__((__always_inline__))
+#endif
 
 #define CASE_1_8 \
   case 1: \
@@ -227,6 +231,9 @@ public:
   inline std::pair<value_holder, bool> ALWAYS_INLINE insert(value_type v);
   inline size_t ALWAYS_INLINE erase(value_type v);
 
+  template<typename F>
+  void for_each(F f);
+
 private:
   detail::empty_value_hash_table_t<detail::StringKey0> m0;
   std::unordered_set<detail::StringKey8,  detail::hasher_t> m1;
@@ -327,8 +334,27 @@ std::pair<string_hash_table_t::value_holder, bool> string_hash_table_t::insert(v
 }
 
 // std: size_type erase(const key_type &k);
-inline size_t ALWAYS_INLINE string_hash_table_t::erase(value_type v) {
+inline size_t string_hash_table_t::erase(value_type v) {
   return dispatch(v, erase_callable());
+}
+
+template<typename F>
+void string_hash_table_t::for_each(F f) {
+  for (auto item : m0) {
+    f(detail::toStringRef(item));
+  }
+  for (auto item : m1) {
+    f(detail::toStringRef(item));
+  }
+  for (auto item : m2) {
+    f(detail::toStringRef(item));
+  }
+  for (auto item : m3) {
+    f(detail::toStringRef(item));
+  }
+  for (auto item : ms) {
+    f(detail::toStringRef(item));
+  }
 }
 
 

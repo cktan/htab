@@ -17,11 +17,11 @@ int main(int /*argc*/, char */*argv*/[]) {
     const char s2[] = "0123456701234567";
     const char s3[] = "012345670123456701234567";
     const char s4[] = "01234567012345670123456701234567";
-    StringRef sr0(s0, sizeof(s0));
-    StringRef sr1(s1, sizeof(s1));
-    StringRef sr2(s2, sizeof(s2));
-    StringRef sr3(s3, sizeof(s3));
-    StringRef sr4(s4, sizeof(s4));
+    StringRef sr0(s0, sizeof(s0) - 1);
+    StringRef sr1(s1, sizeof(s1) - 1);
+    StringRef sr2(s2, sizeof(s2) - 1);
+    StringRef sr3(s3, sizeof(s3) - 1);
+    StringRef sr4(s4, sizeof(s4) - 1);
 
     std::pair<string_hash_table_t::value_holder, bool> insertion;
 
@@ -83,6 +83,13 @@ int main(int /*argc*/, char */*argv*/[]) {
     where = sht.find(sr4);
     std::cout << std::boolalpha << "sr4 contained = " << (sht.end() != where) << std::endl;
 
+    // Print values
+
+    std::cout << "Print values:\n";
+    sht.for_each([](string_hash_table_t::value_type v) {
+      std::cout << '"' << v.toString() << '"' << std::endl;
+    });
+
     // Erase values
 
     std::cout << "Erase values:\n";
@@ -113,6 +120,12 @@ int main(int /*argc*/, char */*argv*/[]) {
 
 
 /* ==TRASH==
+    struct printer_t {
+      void operator()(string_hash_table_t::value_type v) {
+        std::cout << '"' << v.toString() << '"' << std::endl;
+      }
+    };
+    sht.for_each(printer_t());
     std::cout << "sizeof(std::string) = " << sizeof(std::string) << std::endl;
     std::cout << "sizeof(std::string_view) = " << sizeof(std::string_view) << std::endl;
 std::cout << "sizeof(StringKey0) = " << sizeof(StringKey0) << std::endl;
