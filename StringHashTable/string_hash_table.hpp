@@ -44,7 +44,6 @@
 using UInt64 = uint64_t;  //TODO: use directly uint64_t
 
 struct StringKey0 {};
-inline bool operator==(StringKey0, StringKey0) { return true; }
 
 using StringKey8 = UInt64;
 
@@ -153,101 +152,43 @@ struct StringHashTableHash
   }
 };
 
-template <typename Cell>
-struct StringHashTableEmpty
-{
-  using Self = StringHashTableEmpty;
+namespace detail {
 
-  Cell value;
-  bool is_empty{true};
+template <typename T>
+class empty_value_hash_table_t {
+public:
+  using key_type = T;
+  using value_type = T;
+  using iterator = T *;
 
-  StringHashTableEmpty() { memset(reinterpret_cast<char *>(&value), 0, sizeof(value)); }
+  iterator begin() { return empty() ? end() : &m_value; }
+  iterator end() { return &m_value + 1; }
 
-  using key_type = Cell;
+  bool empty() const { return m_empty; }
+  size_t size() const { return empty() ? 0 : 1; }
 
-  template <bool is_const>
-  struct iterator_base
-  {
-    using Parent = std::conditional_t<is_const, const Self *, Self *>;
-    Cell * ptr;
-
-    friend struct iterator_base<!is_const>; // bidirectional friendliness
-
-    iterator_base(Cell * ptr_ = nullptr) : ptr(ptr_) {}
-
-    iterator_base & operator++()
-    {
-      ptr = nullptr;
-      return *this;
+  iterator find(key_type) { return empty() ? end() : begin(); }
+  std::pair<iterator, bool> insert(value_type) {
+    bool inserted = m_empty;
+    if (m_empty) {
+      m_empty = false;
     }
-
-    auto & operator*() const { return *ptr; }
-    auto * operator-> () const { return ptr; }
-
-    auto getPtr() const { return ptr; }
-    size_t getHash() const { return 0; }
-  };
-  using iterator = iterator_base<false>;
-  using const_iterator = iterator_base<true>;
-
-  friend bool operator==(const iterator & lhs, const iterator & rhs)
-  {
-    return (lhs.ptr == nullptr && rhs.ptr == nullptr) || (lhs.ptr != nullptr && rhs.ptr != nullptr);
-  }
-  friend bool operator!=(const iterator & lhs, const iterator & rhs) { return !(lhs == rhs); }
-  friend bool operator==(const const_iterator & lhs, const const_iterator & rhs)
-  {
-    return (lhs.ptr == nullptr && rhs.ptr == nullptr) || (lhs.ptr != nullptr && rhs.ptr != nullptr);
-  }
-  friend bool operator!=(const const_iterator & lhs, const const_iterator & rhs) { return !(lhs == rhs); }
-
-  std::pair<iterator, bool> ALWAYS_INLINE insert(const Cell &) {
-    if (is_empty) {
-      is_empty = false;
-      //src: value->setMapped(x);
-      return {begin(), true};
-    }
-    return {begin(), false};
-  }
-
-  std::pair<iterator, bool> ALWAYS_INLINE emplace(const Cell &) {
-    bool inserted;
-    if (is_empty) {
-      inserted = true;
-      is_empty = false;
-    }
-    else
-      inserted = false;
     return {begin(), inserted};
   }
-
-  size_t ALWAYS_INLINE erase(const Cell &) {
-    if (is_empty) return 0;
-    is_empty = false;
-    return 1;
+  size_t erase(key_type) {
+    size_t count = size();
+    if (!m_empty) {
+      m_empty = true;
+    }
+    return count;
   }
 
-  template <typename Key>
-  iterator ALWAYS_INLINE find(Key) { return begin(); }
-
-  const_iterator begin() const {
-    if (is_empty)
-      return end();
-    return {&value};
-  }
-  iterator begin() {
-    if (is_empty)
-      return end();
-    return {&value};
-  }
-  const_iterator end() const { return {}; }
-  iterator end() { return {}; }
-
-  size_t size() const { return is_empty ? 0 : 1; }
-  bool empty() const { return is_empty; }
-  size_t getBufferSizeInBytes() const { return sizeof(Cell); }
-  size_t getCollisions() const { return 0; }
+private:
+  T m_value;
+  bool m_empty = true;
 };
+
+} // detail::
 
 class string_hash_table_t {
 public:
@@ -293,7 +234,7 @@ public:
   inline size_t ALWAYS_INLINE erase(value_type v);
 
 private:
-  StringHashTableEmpty<StringKey0> m0;
+  detail::empty_value_hash_table_t<StringKey0> m0;
   std::unordered_set<StringKey8,  StringHashTableHash> m1;
   std::unordered_set<StringKey16, StringHashTableHash> m2;
   std::unordered_set<StringKey24, StringHashTableHash> m3;
@@ -398,6 +339,103 @@ inline size_t ALWAYS_INLINE string_hash_table_t::erase(value_type v) {
 
 
 /* ==TRASH==
+
+template <typename Cell>
+struct StringHashTableEmpty
+{
+  using Self = StringHashTableEmpty;
+
+  Cell value;
+  bool is_empty{true};
+
+  StringHashTableEmpty() { memset(reinterpret_cast<char *>(&value), 0, sizeof(value)); }
+
+  using key_type = Cell;
+
+  template <bool is_const>
+  struct iterator_base
+  {
+    using Parent = std::conditional_t<is_const, const Self *, Self *>;
+    Cell * ptr;
+
+    friend struct iterator_base<!is_const>; // bidirectional friendliness
+
+    iterator_base(Cell * ptr_ = nullptr) : ptr(ptr_) {}
+
+    iterator_base & operator++()
+    {
+      ptr = nullptr;
+      return *this;
+    }
+
+    auto & operator*() const { return *ptr; }
+    auto * operator-> () const { return ptr; }
+
+    auto getPtr() const { return ptr; }
+    size_t getHash() const { return 0; }
+  };
+  using iterator = iterator_base<false>;
+  using const_iterator = iterator_base<true>;
+
+  friend bool operator==(const iterator & lhs, const iterator & rhs)
+  {
+    return (lhs.ptr == nullptr && rhs.ptr == nullptr) || (lhs.ptr != nullptr && rhs.ptr != nullptr);
+  }
+  friend bool operator!=(const iterator & lhs, const iterator & rhs) { return !(lhs == rhs); }
+  friend bool operator==(const const_iterator & lhs, const const_iterator & rhs)
+  {
+    return (lhs.ptr == nullptr && rhs.ptr == nullptr) || (lhs.ptr != nullptr && rhs.ptr != nullptr);
+  }
+  friend bool operator!=(const const_iterator & lhs, const const_iterator & rhs) { return !(lhs == rhs); }
+
+  std::pair<iterator, bool> ALWAYS_INLINE insert(const Cell &) {
+    if (is_empty) {
+      is_empty = false;
+      //src: value->setMapped(x);
+      return {begin(), true};
+    }
+    return {begin(), false};
+  }
+
+  std::pair<iterator, bool> ALWAYS_INLINE emplace(const Cell &) {
+    bool inserted;
+    if (is_empty) {
+      inserted = true;
+      is_empty = false;
+    }
+    else
+      inserted = false;
+    return {begin(), inserted};
+  }
+
+  size_t ALWAYS_INLINE erase(const Cell &) {
+    if (is_empty) return 0;
+    is_empty = false;
+    return 1;
+  }
+
+  template <typename Key>
+  iterator ALWAYS_INLINE find(Key) { return begin(); }
+
+  const_iterator begin() const {
+    if (is_empty)
+      return end();
+    return {&value};
+  }
+  iterator begin() {
+    if (is_empty)
+      return end();
+    return {&value};
+  }
+  const_iterator end() const { return {}; }
+  iterator end() { return {}; }
+
+  size_t size() const { return is_empty ? 0 : 1; }
+  bool empty() const { return is_empty; }
+  size_t getBufferSizeInBytes() const { return sizeof(Cell); }
+  size_t getCollisions() const { return 0; }
+};
+
 //  string_hash_table_t(const string_hash_table_t &) = delete;
 //  string_hash_table_t &operator=(const string_hash_table_t &) = delete;
 
