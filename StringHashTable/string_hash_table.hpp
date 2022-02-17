@@ -154,10 +154,10 @@ class empty_value_hash_table_t {
 public:
   using key_type = T;
   using value_type = T;
-  using iterator = T *;
+  using iterator = const T *;
 
-  iterator begin() { return empty() ? end() : &m_value; }
-  iterator end() { return &m_value + 1; }
+  iterator begin() const { return empty() ? end() : &m_value; }
+  iterator end() const { return &m_value + 1; }
 
   bool empty() const { return m_empty; }
   size_t size() const { return empty() ? 0 : 1; }
@@ -179,7 +179,7 @@ public:
   }
 
 private:
-  T m_value;
+  inline static const T m_value;
   bool m_empty = true;
 };
 
