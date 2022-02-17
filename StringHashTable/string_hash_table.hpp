@@ -41,23 +41,21 @@
   case 23: \
   case 24
 
-using UInt64 = uint64_t;  //TODO: use directly uint64_t
-
 struct StringKey0 {};
 
-using StringKey8 = UInt64;
+using StringKey8 = uint64_t;
 
 struct StringKey16
 {
-  UInt64 a;
-  UInt64 b;
+  uint64_t a;
+  uint64_t b;
 
   bool operator==(const StringKey16 rhs) const { return a == rhs.a && b == rhs.b; }
   bool operator!=(const StringKey16 rhs) const { return !operator==(rhs); }
-  bool operator==(const UInt64 rhs) const { return a == rhs && b == 0; }
-  bool operator!=(const UInt64 rhs) const { return !operator==(rhs); }
+  bool operator==(const uint64_t rhs) const { return a == rhs && b == 0; }
+  bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
 
-  StringKey16 & operator=(const UInt64 rhs)
+  StringKey16 & operator=(const uint64_t rhs)
   {
     a = rhs;
     b = 0;
@@ -67,16 +65,16 @@ struct StringKey16
 
 struct StringKey24
 {
-  UInt64 a;
-  UInt64 b;
-  UInt64 c;
+  uint64_t a;
+  uint64_t b;
+  uint64_t c;
 
   bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
   bool operator!=(const StringKey24 rhs) const { return !operator==(rhs); }
-  bool operator==(const UInt64 rhs) const { return a == rhs && b == 0 && c == 0; }
-  bool operator!=(const UInt64 rhs) const { return !operator==(rhs); }
+  bool operator==(const uint64_t rhs) const { return a == rhs && b == 0 && c == 0; }
+  bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
 
-  StringKey24 & operator=(const UInt64 rhs)
+  StringKey24 & operator=(const uint64_t rhs)
   {
     a = rhs;
     b = 0;
@@ -134,7 +132,7 @@ struct StringHashTableHash
     const char *p = key.data;
     const char *lp = p + sz - 8; // starting pointer of the last 8 bytes segment
     char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
-    UInt64 n[3]; // StringRef in SSO map will have length > 24
+    uint64_t n[3]; // StringRef in SSO map will have length > 24
     memcpy(&n, p, 24);
     res = _mm_crc32_u64(res, n[0]);
     res = _mm_crc32_u64(res, n[1]);
@@ -284,7 +282,7 @@ decltype(auto) string_hash_table_t::dispatch(value_type x, Func func) {
     StringKey8 k8;
     StringKey16 k16;
     StringKey24 k24;
-    UInt64 n[3];
+    uint64_t n[3];
   };
   switch (sz) {
     case 0: {
