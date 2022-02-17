@@ -1,10 +1,9 @@
 /// \file
 /// \brief String hash table
 
-//TODO: replace StringRef with std::string_view
-#include <common/StringRef.h>  // StringRef + SIMD functions for comparison
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <smmintrin.h>
 
@@ -46,37 +45,37 @@
 
 namespace detail {
 
-struct StringKey0 {};
+struct string_key0 {};
 
-using StringKey8 = uint64_t;
+using string_key8 = uint64_t;
 
-struct StringKey16 {
+struct string_key16 {
   uint64_t a;
   uint64_t b;
 
-  bool operator==(const StringKey16 rhs) const { return a == rhs.a && b == rhs.b; }
-  bool operator!=(const StringKey16 rhs) const { return !operator==(rhs); }
+  bool operator==(const string_key16 rhs) const { return a == rhs.a && b == rhs.b; }
+  bool operator!=(const string_key16 rhs) const { return !operator==(rhs); }
   bool operator==(const uint64_t rhs) const { return a == rhs && b == 0; }
   bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
 
-  StringKey16 & operator=(const uint64_t rhs) {
+  string_key16 & operator=(const uint64_t rhs) {
     a = rhs;
     b = 0;
     return *this;
   }
 };
 
-struct StringKey24 {
+struct string_key24 {
   uint64_t a;
   uint64_t b;
   uint64_t c;
 
-  bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
-  bool operator!=(const StringKey24 rhs) const { return !operator==(rhs); }
+  bool operator==(const string_key24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
+  bool operator!=(const string_key24 rhs) const { return !operator==(rhs); }
   bool operator==(const uint64_t rhs) const { return a == rhs && b == 0 && c == 0; }
   bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
 
-  StringKey24 & operator=(const uint64_t rhs) {
+  string_key24 & operator=(const uint64_t rhs) {
     a = rhs;
     b = 0;
     c = 0;
@@ -84,40 +83,39 @@ struct StringKey24 {
   }
 };
 
-inline StringRef ALWAYS_INLINE toStringRef(const StringKey0 &) { return {}; }
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key0 &) { return {}; }
 
-inline StringRef ALWAYS_INLINE toStringRef(const StringKey8 &n) {
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key8 &n) {
   return {reinterpret_cast<const char *>(&n), 8ul - (__builtin_clzll(n) >> 3)};
 }
 
-inline StringRef ALWAYS_INLINE toStringRef(const StringKey16 &n) {
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key16 &n) {
   return {reinterpret_cast<const char *>(&n), 16ul - (__builtin_clzll(n.b) >> 3)};
 }
 
-inline StringRef ALWAYS_INLINE toStringRef(const StringKey24 &n) {
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key24 &n) {
   return {reinterpret_cast<const char *>(&n), 24ul - (__builtin_clzll(n.c) >> 3)};
 }
 
-inline const StringRef & ALWAYS_INLINE toStringRef(const StringRef &s) {
+inline const std::string_view & ALWAYS_INLINE to_string_view(const std::string_view &s) {
   return s;
 }
 
-struct hasher_t
-{
-  size_t ALWAYS_INLINE operator()(StringKey8 key) const {
+struct hasher_t {
+  size_t ALWAYS_INLINE operator()(string_key8 key) const {
     size_t res = size_t(-1ULL);
     res = _mm_crc32_u64(res, key);
     return res;
   }
 
-  size_t ALWAYS_INLINE operator()(StringKey16 key) const {
+  size_t ALWAYS_INLINE operator()(string_key16 key) const {
     size_t res = size_t(-1ULL);
     res = _mm_crc32_u64(res, key.a);
     res = _mm_crc32_u64(res, key.b);
     return res;
   }
 
-  size_t ALWAYS_INLINE operator()(StringKey24 key) const {
+  size_t ALWAYS_INLINE operator()(string_key24 key) const {
     size_t res = size_t(-1ULL);
     res = _mm_crc32_u64(res, key.a);
     res = _mm_crc32_u64(res, key.b);
@@ -125,13 +123,13 @@ struct hasher_t
     return res;
   }
 
-  size_t ALWAYS_INLINE operator()(StringRef key) const {
+  size_t ALWAYS_INLINE operator()(std::string_view key) const {
     size_t res = size_t(-1ULL);
-    size_t sz = key.size;
-    const char *p = key.data;
+    size_t sz = std::size(key);
+    const char *p = std::data(key);
     const char *lp = p + sz - 8; // starting pointer of the last 8 bytes segment
     char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
-    uint64_t n[3]; // StringRef in SSO map will have length > 24
+    uint64_t n[3]; // std::string_view in SSO map will have length > 24
     memcpy(&n, p, 24);
     res = _mm_crc32_u64(res, n[0]);
     res = _mm_crc32_u64(res, n[1]);
@@ -186,6 +184,11 @@ private:
 } // detail::
 
 class string_hash_table_t {
+  // This class isn't a STL compatible container, because internally it uses
+  // containers of different types to maintain varied lenght strings.So, there
+  // is no unified iterator exists, and in public interface we don't use
+  // iterators at all.
+
 public:
   string_hash_table_t() {}
   string_hash_table_t(size_t min_bucket_count)
@@ -197,7 +200,7 @@ public:
   {
   }
 
-  using value_type = StringRef;
+  using value_type = std::string_view;
 
   bool empty() const {
     return m0.empty() && m1.empty() && m2.empty() && m3.empty() && ms.empty();
@@ -214,11 +217,11 @@ public:
   void for_each(F f);
 
 private:
-  detail::empty_value_hash_table_t<detail::StringKey0> m0;
-  std::unordered_set<detail::StringKey8,  detail::hasher_t> m1;
-  std::unordered_set<detail::StringKey16, detail::hasher_t> m2;
-  std::unordered_set<detail::StringKey24, detail::hasher_t> m3;
-  std::unordered_set<StringRef,           detail::hasher_t> ms;
+  detail::empty_value_hash_table_t<detail::string_key0> m0;
+  std::unordered_set<detail::string_key8,  detail::hasher_t> m1;
+  std::unordered_set<detail::string_key16, detail::hasher_t> m2;
+  std::unordered_set<detail::string_key24, detail::hasher_t> m3;
+  std::unordered_set<std::string_view,     detail::hasher_t> ms;
 
   template <typename Func>
   inline decltype(auto) ALWAYS_INLINE dispatch(value_type x, Func func);
@@ -254,14 +257,14 @@ decltype(auto) string_hash_table_t::dispatch(value_type x, Func func) {
   // 3. [DELETED] Combine hash computation along with key loading
   // 4. Funcs are named callables that can be force_inlined
   // NOTE: It relies on Little Endianness and SSE4.2
-  static constexpr detail::StringKey0 key0;
-  size_t sz = x.size;
-  const char *p = x.data;
+  static constexpr detail::string_key0 key0;
+  size_t sz = std::size(x);
+  const char *p = std::data(x);
   char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
   union {
-    detail::StringKey8 k8;
-    detail::StringKey16 k16;
-    detail::StringKey24 k24;
+    detail::string_key8 k8;
+    detail::string_key16 k16;
+    detail::string_key24 k24;
     uint64_t n[3];
   };
   switch (sz) {
@@ -274,7 +277,7 @@ decltype(auto) string_hash_table_t::dispatch(value_type x, Func func) {
         n[0] &= -1ul >> s;
       }
       else {
-        const char *lp = x.data + x.size - 8;
+        const char *lp = std::data(x) + std::size(x) - 8;
         memcpy(&n[0], lp, 8);
         n[0] >>= s;
       }
@@ -282,14 +285,14 @@ decltype(auto) string_hash_table_t::dispatch(value_type x, Func func) {
     }
     CASE_9_16 : {
       memcpy(&n[0], p, 8);
-      const char *lp = x.data + x.size - 8;
+      const char *lp = std::data(x) + std::size(x) - 8;
       memcpy(&n[1], lp, 8);
       n[1] >>= s;
       return func(m2, k16);
     }
     CASE_17_24 : {
       memcpy(&n[0], p, 16);
-      const char *lp = x.data + x.size - 8;
+      const char *lp = std::data(x) + std::size(x) - 8;
       memcpy(&n[2], lp, 8);
       n[2] >>= s;
       return func(m3, k24);
@@ -315,19 +318,19 @@ bool string_hash_table_t::erase(value_type v) {
 template<typename F>
 void string_hash_table_t::for_each(F f) {
   for (auto item : m0) {
-    f(detail::toStringRef(item));
+    f(detail::to_string_view(item));
   }
   for (auto item : m1) {
-    f(detail::toStringRef(item));
+    f(detail::to_string_view(item));
   }
   for (auto item : m2) {
-    f(detail::toStringRef(item));
+    f(detail::to_string_view(item));
   }
   for (auto item : m3) {
-    f(detail::toStringRef(item));
+    f(detail::to_string_view(item));
   }
   for (auto item : ms) {
-    f(detail::toStringRef(item));
+    f(detail::to_string_view(item));
   }
 }
 

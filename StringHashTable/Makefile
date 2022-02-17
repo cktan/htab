@@ -24,13 +24,6 @@ endif
 
 # INCLUDES (without -I)
 
-INCLUDES += \
-    $(SRC_DIR)ext/ClickHouse/dbms/src \
-    $(SRC_DIR)ext/ClickHouse/contrib/cityhash102/include \
-    $(SRC_DIR)ext/ClickHouse/libs/libcommon/include \
-	
-#$(SRC_DIR)ext/boost-v1.74.0 \
-
 # FLAGS (without DEFINES and INCLUDES)
 
 CXXFLAGS = -std=c++17 -Wmissing-declarations -Wall -Wextra -Wno-format-security -mavx
