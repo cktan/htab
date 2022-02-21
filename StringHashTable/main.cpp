@@ -4,108 +4,192 @@
 #include "string_hash_table.hpp"
 #include <exception>
 #include <iostream>
-#include <unordered_set>
+#include <string_view>
+
+using namespace std::string_literals;
+using namespace std::string_view_literals;
+
+/*
+struct value_t {
+  int n = 0;
+  std::string s;
+};
+*/
+
+// Tracing version
+struct value_t {
+  int n = 0;
+  std::string s;
+
+  value_t() { std::cerr << "default ctor()\n"; }
+  value_t(int n, const std::string &s = {}) : n(n), s(s) {
+    std::cerr << "user ctor()\n";
+  }
+  value_t(const value_t &other) : value_t(other.n, other.s) {
+    std::cerr << "copy ctor()\n";
+  }
+  value_t &operator=(const value_t &other) {
+    std::cerr << "assignment\n";
+    if (this != &other) { n = other.n; s = other.s; }
+    return *this;
+  }
+  value_t(value_t &&other) : n(std::move(other.n)), s(std::move(other.s)) {
+    std::cerr << "move ctor()\n";
+  }
+  value_t &operator=(value_t &&other) {
+    std::cerr << "move assignment\n";
+    if (this != &other) { n = std::move(other.n); s = std::move(other.s); }
+    return *this;
+  }
+  ~value_t() { std::cerr << "dtor()\n"; }
+
+  static void *operator new(std::size_t size, void *ptr) noexcept {
+    std::cerr << "placement operator new()\n";
+    return ::operator new(size, ptr);
+  }
+};
+
+static std::ostream& operator<<(std::ostream &stream, const value_t &obj) {
+  return stream << "{n = " << obj.n << ", s = " << obj.s << '}';
+}
+
+static std::ostream& operator<<(std::ostream &stream, const value_t *obj) {
+  return obj ? stream << *obj : stream << "(null)";
+}
 
 int main(int /*argc*/, char */*argv*/[]) {
   try {
-    static const size_t min_bucket_count = 4;
-    string_hash_table_t sht(min_bucket_count);
-    std::cout << "size = " << sht.size() << std::endl;
+    static const size_t element_count = 100;
+    string_hash_table_t<value_t> sht(element_count);  // preallocates for element_count elements
+    std::cerr << "size = " << sht.size() << std::endl;
 
-    const char s0[] = "";
-    const char s1[] = "01234567";
-    const char s2[] = "0123456701234567";
-    const char s3[] = "012345670123456701234567";
-    const char s4[] = "01234567012345670123456701234567";
-    std::string_view sr0(s0, sizeof(s0) - 1);
-    std::string_view sr1(s1, sizeof(s1) - 1);
-    std::string_view sr2(s2, sizeof(s2) - 1);
-    std::string_view sr3(s3, sizeof(s3) - 1);
-    std::string_view sr4(s4, sizeof(s4) - 1);
+    // Define some keys of varied length
+    // zero size key, stores in m0 as string_key0
+    std::string_view key0 = ""sv;
+    // [1..8] size key, stores in m1 as string_key8
+    std::string_view key1 = "01234567"sv;
+    std::string_view key1x = "xxxxxxxx"sv;
+    // [9..16] size key, stores in m2 as string_key16
+    std::string_view key2 = "0123456701234567"sv;
+    std::string_view key2x = "xxxxxxxxxxxxxxxx"sv;
+    // [17..24] size key, stores in m3 as string_key24
+    std::string_view key3 = "012345670123456701234567"sv;
+    std::string_view key3x = "xxxxxxxxxxxxxxxxxxxxxxxx"sv;
+    // > 24 size key, stores in ms as string_view
+    std::string_view key4 = "01234567012345670123456701234567"sv;
+    std::string_view key4x = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"sv;
 
-    bool inserted;
+    // Define some values
+    value_t val1{1, "str1"};
+    value_t val2{2, "str2"};
+    value_t val3{3, "str3"};
+    value_t val4{4, "str4"};
+    value_t valx{-1, "xxxx"};
 
     // Insert values
-    std::cout << "Insert values:\n";
 
-    inserted = sht.insert(sr0);
-    std::cout << std::boolalpha << "sr0 inserted = " << inserted << std::endl;
+    std::cerr << "**** Insert values:\n";
+    std::pair<value_t *, bool> insertion;
 
-    inserted = sht.insert(sr1);
-    std::cout << std::boolalpha << "sr1 inserted = " << inserted << std::endl;
+    insertion = sht.emplace(key0, 0, "I'm emplaced under zero key");  // Ref. calls: user ctor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    inserted = sht.insert(sr2);
-    std::cout << std::boolalpha << "sr2 inserted = " << inserted << std::endl;
+    insertion = sht.emplace(key1, val1);  // Ref. calls: user ctor(), copy ctor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    inserted = sht.insert(sr3);
-    std::cout << std::boolalpha << "sr3 inserted = " << inserted << std::endl;
+    insertion = sht.emplace(key2, std::move(val2));  // Ref. calls: move ctor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    inserted = sht.insert(sr4);
-    std::cout << std::boolalpha << "sr4 inserted = " << inserted << std::endl;
+    insertion = sht.insert(key3, val3);  // Ref. calls: user ctor(), copy ctor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    std::cout << "size = " << sht.size() << std::endl;
+    insertion = sht.insert(key4, std::move(val4));  // Ref. calls: move ctor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    // Insert again
-    std::cout << "Insert values again:\n";
+    std::cerr << "size = " << sht.size() << std::endl;
 
-    inserted = sht.insert(sr0);
-    std::cout << std::boolalpha << "sr0 inserted = " << inserted << std::endl;
+    // Insert values under the same keys
 
-    inserted = sht.insert(sr1);
-    std::cout << std::boolalpha << "sr1 inserted = " << inserted << std::endl;
+    std::cerr << "**** Insert values under the same keys:\n";
 
-    inserted = sht.insert(sr2);
-    std::cout << std::boolalpha << "sr2 inserted = " << inserted << std::endl;
+    insertion = sht.emplace(key0, valx.n, valx.s);  // Ref. calls: user ctor(), dtor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    inserted = sht.insert(sr3);
-    std::cout << std::boolalpha << "sr3 inserted = " << inserted << std::endl;
+    insertion = sht.emplace(key1, valx);  // Ref. calls: user ctor(), copy ctor(), dtor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
-    inserted = sht.insert(sr4);
-    std::cout << std::boolalpha << "sr4 inserted = " << inserted << std::endl;
+    insertion = sht.emplace(key2, std::move(valx)); // Ref. calls: move ctor(), dtor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
+
+    insertion = sht.insert(key3, valx);  // Ref. calls: user ctor(), copy ctor(), dtor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
+
+    insertion = sht.insert(key4, std::move(valx));  // Ref. calls: move ctor(), dtor()
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
 
     // Find values
 
-    std::cout << "Find values:\n";
-    bool contained;
+    std::cerr << "**** Find values:\n";
+    value_t *val;
 
-    contained = sht.contains(sr0);
-    std::cout << std::boolalpha << "sr0 contained = " << contained << std::endl;
+    val = sht.find(key0);
+    std::cerr << std::boolalpha << "key0 -> " << val << std::endl;
 
-    contained = sht.contains(sr1);
-    std::cout << std::boolalpha << "sr1 contained = " << contained << std::endl;
+    val = sht.find(key1);
+    std::cerr << std::boolalpha << "key1 -> " << val << std::endl;
 
-    contained = sht.contains(sr2);
-    std::cout << std::boolalpha << "sr2 contained = " << contained << std::endl;
+    val = sht.find(key2);
+    std::cerr << std::boolalpha << "key2 -> " << val << std::endl;
 
-    contained = sht.contains(sr3);
-    std::cout << std::boolalpha << "sr3 contained = " << contained << std::endl;
+    val = sht.find(key3);
+    std::cerr << std::boolalpha << "key3 -> " << val << std::endl;
 
-    contained = sht.contains(sr4);
-    std::cout << std::boolalpha << "sr4 contained = " << contained << std::endl;
+    val = sht.find(key4);
+    std::cerr << std::boolalpha << "key4 -> " << val << std::endl;
+
+    val = sht.find(key1x);
+    std::cerr << std::boolalpha << "key1x -> " << val << std::endl;
+
+    val = sht.find(key2x);
+    std::cerr << std::boolalpha << "key2x -> " << val << std::endl;
+
+    val = sht.find(key3x);
+    std::cerr << std::boolalpha << "key3x -> " << val << std::endl;
+
+    val = sht.find(key4x);
+    std::cerr << std::boolalpha << "key4x -> " << val << std::endl;
+
+    // Erase some values
+
+    std::cerr << "**** Erase some values:\n";
+    sht.erase(key0);
+    sht.erase(key4);
+    std::cerr << "size = " << sht.size() << std::endl;
 
     // Print values
 
-    std::cout << "Print values:\n";
-    sht.for_each([](string_hash_table_t::value_type v) {
-      std::cout << '"' << v << '"' << std::endl;
+    std::cerr << "**** Print values:\n";
+    sht.for_each([](std::string_view key, const value_t &val) {
+      std::cerr << key << " -> " << val << std::endl;
     });
 
-    // Erase values
+    // Clear
 
-    std::cout << "Erase values:\n";
-    sht.erase(sr0);
-    sht.erase(sr1);
-    sht.erase(sr2);
-    sht.erase(sr3);
-    sht.erase(sr4);
-    std::cout << "size = " << sht.size() << std::endl;
+    std::cerr << "**** Clear:\n";
+    sht.clear();
+    std::cerr << "size = " << sht.size() << std::endl;
 
-    string_hash_table_t sht1;
-    string_hash_table_t sht2;
-
-    sht1 = std::move(sht1);
-    string_hash_table_t sht3(std::move(sht1));
-
+    std::cerr << "**** Done\n";
     return 0;
   }
   catch (const std::exception &e) {
@@ -120,4 +204,48 @@ int main(int /*argc*/, char */*argv*/[]) {
 
 
 /* ==TRASH==
+    //Ref. to exactly find std container behaviour:
+    std::unordered_map<std::string_view, value_t> map;
+    map.reserve(100);
+
+    std::unordered_map<std::string_view, value_t>::value_type mapval3(key3, val3);
+    std::unordered_map<std::string_view, value_t>::value_type mapval4(key4, val4);
+
+    // Insert
+
+    std::cerr << "map.emplace(key0, 1, \"123\"):\n";
+    map.emplace(std::piecewise_construct, std::forward_as_tuple(key0),
+                std::forward_as_tuple(1, "123"));
+
+    std::cerr << "map.emplace(key1, val1):\n";
+    map.emplace(key1, val1);
+
+    std::cerr << "map.emplace(key2, std::move(val2)):\n";
+    map.emplace(key2, std::move(val2));
+
+    std::cerr << "map.insert(mapval3):\n";
+    map.insert(mapval3);
+
+    std::cerr << "map.insert(std::move(mapval4)):\n";
+    map.insert(std::move(mapval4));
+
+    // Insert again
+
+    std::cerr << "map.emplace(key0, 1, \"123\"):\n";
+    map.emplace(std::piecewise_construct, std::forward_as_tuple(key0),
+                std::forward_as_tuple(1, "123"));
+
+    std::cerr << "map.emplace(key1, val1):\n";
+    map.emplace(key1, val1);
+
+    std::cerr << "map.emplace(key2, std::move(val2)):\n";
+    map.emplace(key2, std::move(val2));
+
+    std::cerr << "map.insert(mapval3):\n";
+    map.insert(mapval3);
+
+    std::cerr << "map.insert(std::move(mapval4)):\n";
+    map.insert(std::move(mapval4));
+
+    return 0;
 */
