@@ -201,7 +201,8 @@ public:
                                                              mapped_type &&value);
   template <typename... Args>
   inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, Args &&... args);
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, mapped_type &&value);
+  template <typename... Args>
+  inline std::pair<mapped_type *, bool> ALWAYS_INLINE try_emplace(key_type key, Args &&... args);
   inline bool ALWAYS_INLINE erase(key_type key);
 
   template<typename F>
@@ -263,12 +264,31 @@ private:
     emplace_callable(U args) : m_args(std::forward<U>(args)) {}
     template <typename Map>
     std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-      if constexpr (std::is_same_v<mapped_type, std::decay_t<U>>) {
+      if constexpr (std::is_same_v<mapped_type, std::decay_t<U>>) {  // scalar 'U &&'
         auto [it, inserted] = map.emplace(key, std::forward<mapped_type>(m_args));
         return {&it->second, inserted};
-      } else {
+      } else {  // tuple of input args ('U &' is here)
         auto [it, inserted] = map.emplace(std::piecewise_construct, std::forward_as_tuple(key),
-                                          m_args);  // std::forward<U>(args) acts the same
+                                          m_args);
+        return {&it->second, inserted};
+      }
+    }
+  };
+
+  template <typename U>
+  struct try_emplace_callable {
+    U m_args;  // either being scalar 'U &&' or tuple of input args ('U &' is here)
+    try_emplace_callable(U args) : m_args(std::forward<U>(args)) {}
+    template <typename Map>
+    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
+      if constexpr (std::is_same_v<mapped_type, std::decay_t<U>>) {  // scalar 'U &&'
+        auto [it, inserted] = map.try_emplace(key, std::forward<mapped_type>(m_args));
+        return {&it->second, inserted};
+      } else {  // tuple of input args ('U &' is here)
+        auto func = [&](auto &&... args) -> auto {
+          return map.try_emplace(key, std::forward<decltype(args)>(args)...);
+        };
+        auto [it, inserted] = std::apply(func, m_args);
         return {&it->second, inserted};
       }
     }
@@ -358,23 +378,34 @@ template <typename T>
 template <typename... Args>
 std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::emplace(
   key_type key, Args &&... args) {
-  // Note: There was failed to determine rvalue ref. after forwarding as tuple, i.e. when
+  // Note: There is failed to determine rvalue ref. after forwarding as tuple, i.e. when
   // input args start from rvalue (obtained from std::move()), the following returns false:
   // auto m_args = std::forward_as_tuple(args...);
   // (std::is_rvalue_reference_v<std::tuple_element_t<0, decltype(m_args)>>) -> returns false,
   // but the following is ok:
   // (std::is_rvalue_reference_v<std::tuple_element_t<0, std::tuple<Args &&...>>>) -> returns true.
-  // emplace_callable template parameter is deduced as tuple here, so inside the emplace_callable
-  // it's not possible to detect rvalue ref.
-  // To bypass this issue dedicated overload emplace(key_type key, mapped_type &&value) is used.
+  // When emplace_callable's template parameter is deduced as tuple, inside the emplace_callable
+  // it's not possible to detect rvalue ref. To bypass this issue rvalue is detected here.
 
-  return dispatch(key, emplace_callable(std::forward_as_tuple(args...)));
+  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<
+    std::tuple_element_t<0, std::tuple<Args &&...>>>) {
+    return dispatch(key, emplace_callable<T &&>(std::forward<Args>(args)...));
+  } else {
+    return dispatch(key, emplace_callable(std::forward_as_tuple(args...)));
+  }
 }
 
 template <typename T>
-std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::emplace(
-  key_type key, mapped_type &&value) {
-  return dispatch(key, emplace_callable<T &&>(std::forward<mapped_type>(value)));
+template <typename... Args>
+std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::try_emplace(
+  key_type key, Args &&... args) {
+  // Note: Here there is the same story as in emplace() (see above).
+  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<
+    std::tuple_element_t<0, std::tuple<Args &&...>>>) {
+    return dispatch(key, try_emplace_callable<T &&>(std::forward<Args>(args)...));
+  } else {
+    return dispatch(key, try_emplace_callable(std::forward_as_tuple(args...)));
+  }
 }
 
 template <typename T>
