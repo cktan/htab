@@ -196,9 +196,13 @@ public:
 
   inline mapped_type * ALWAYS_INLINE find(key_type key);
   inline std::pair<mapped_type *, bool> ALWAYS_INLINE insert(key_type key,
-                                                             const mapped_type &value);
+                                                             const mapped_type &value) {
+    return insert_helper(key, value);
+  }
   inline std::pair<mapped_type *, bool> ALWAYS_INLINE insert(key_type key,
-                                                             mapped_type &&value);
+                                                             mapped_type &&value) {
+    return insert_helper(key, std::forward<mapped_type>(value));
+  }
   template <typename... Args>
   inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, Args &&... args);
   template <typename... Args>
@@ -236,70 +240,8 @@ private:
 
   template <typename Func>
   inline decltype(auto) ALWAYS_INLINE dispatch(key_type x, Func func);
-
-  struct find_callable {
-    template <typename Map>
-    mapped_type * ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-      auto it = map.find(key);
-      return map.end() != it ? &it->second : nullptr;
-    }
-  };
-
   template <typename V>
-  struct insert_callable {
-    V m_value;  // either being 'const V &' or 'V &&'
-    insert_callable(V value) : m_value(std::forward<V>(value)) {}
-    template <typename Map>
-    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-      // Note: insert() way makes copy of mapped_type while constructing pair (value_type):
-      // auto [it, inserted] = map.insert({key, std::forward<V>(m_value)});
-      auto [it, inserted] = map.emplace(key, std::forward<V>(m_value));
-      return {&it->second, inserted};
-    }
-  };
-
-  template <typename U>
-  struct emplace_callable {
-    U m_args;  // either being scalar 'U &&' or tuple of input args ('U &' is here)
-    emplace_callable(U args) : m_args(std::forward<U>(args)) {}
-    template <typename Map>
-    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-      if constexpr (std::is_same_v<mapped_type, std::decay_t<U>>) {  // scalar 'U &&'
-        auto [it, inserted] = map.emplace(key, std::forward<mapped_type>(m_args));
-        return {&it->second, inserted};
-      } else {  // tuple of input args ('U &' is here)
-        auto [it, inserted] = map.emplace(std::piecewise_construct, std::forward_as_tuple(key),
-                                          m_args);
-        return {&it->second, inserted};
-      }
-    }
-  };
-
-  template <typename U>
-  struct try_emplace_callable {
-    U m_args;  // either being scalar 'U &&' or tuple of input args ('U &' is here)
-    try_emplace_callable(U args) : m_args(std::forward<U>(args)) {}
-    template <typename Map>
-    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-      if constexpr (std::is_same_v<mapped_type, std::decay_t<U>>) {  // scalar 'U &&'
-        auto [it, inserted] = map.try_emplace(key, std::forward<mapped_type>(m_args));
-        return {&it->second, inserted};
-      } else {  // tuple of input args ('U &' is here)
-        auto func = [&](auto &&... args) -> auto {
-          return map.try_emplace(key, std::forward<decltype(args)>(args)...);
-        };
-        auto [it, inserted] = std::apply(func, m_args);
-        return {&it->second, inserted};
-      }
-    }
-  };
-
-  struct erase_callable {
-    template <typename Map>
-    bool ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-      return (map.erase(key));
-    }
-  };
+  inline std::pair<mapped_type *, bool> ALWAYS_INLINE insert_helper(key_type key, V &&value);
 };
 
 template <typename T>
@@ -358,20 +300,25 @@ decltype(auto) string_hash_table_t<T>::dispatch(key_type key, Func func) {
 }
 
 template <typename T>
+template <typename V>
+std::pair<typename string_hash_table_t<T>::mapped_type *, bool>
+  string_hash_table_t<T>::insert_helper(key_type key, V &&value) {
+  auto callback = [&value](auto &map, auto key) -> std::pair<mapped_type *, bool> {
+    // Note: insert() way makes copy of mapped_type while constructing pair (value_type):
+    // auto [it, inserted] = map.insert({key, std::forward<V>(value))});
+    auto [it, inserted] = map.emplace(key, std::forward<V>(value));
+    return {&it->second, inserted};
+  };
+  return dispatch(key, callback);
+}
+
+template <typename T>
 typename string_hash_table_t<T>::mapped_type *string_hash_table_t<T>::find(key_type key) {
-  return dispatch(key, find_callable());
-}
-
-template <typename T>
-std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::insert(
-  key_type key, const mapped_type &value) {
-  return dispatch(key, insert_callable<const T &>(value));
-}
-
-template <typename T>
-std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::insert(
-  key_type key, mapped_type &&value) {
-  return dispatch(key, insert_callable<T &&>(std::forward<mapped_type>(value)));
+  auto callback = [](auto &map, auto key) -> mapped_type * {
+    auto it = map.find(key);
+    return map.end() != it ? &it->second : nullptr;
+  };
+  return dispatch(key, callback);
 }
 
 template <typename T>
@@ -384,14 +331,31 @@ std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_tabl
   // (std::is_rvalue_reference_v<std::tuple_element_t<0, decltype(m_args)>>) -> returns false,
   // but the following is ok:
   // (std::is_rvalue_reference_v<std::tuple_element_t<0, std::tuple<Args &&...>>>) -> returns true.
-  // When emplace_callable's template parameter is deduced as tuple, inside the emplace_callable
-  // it's not possible to detect rvalue ref. To bypass this issue rvalue is detected here.
 
-  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<
-    std::tuple_element_t<0, std::tuple<Args &&...>>>) {
-    return dispatch(key, emplace_callable<T &&>(std::forward<Args>(args)...));
+  // Note: We cannot use input parameter pack inside a lambda directly, we need to capture it
+  // somehow or pass as parameter. In C++20 a lambda can capture parameter pack:
+  // [... args = std::forward<Args>(args)]() { use args }
+  // In C++17 we need to use tuple.
+
+  using t0 = std::tuple_element_t<0, std::tuple<Args &&...>>;
+  auto targs = std::forward_as_tuple(args...);
+
+  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<t0>
+    && std::is_same_v<mapped_type, std::decay_t<t0>>) {
+    // scalar 'mapped_type &&'
+    auto callback = [&targs](auto &map, auto key) -> std::pair<mapped_type *, bool> {
+      auto [it, inserted] = map.emplace(key, std::forward<mapped_type>(std::get<0>(targs)));
+      return {&it->second, inserted};
+    };
+    return dispatch(key, callback);
   } else {
-    return dispatch(key, emplace_callable(std::forward_as_tuple(args...)));
+    // tuple of input args ('mapped_type &' is here)
+    auto callback = [&targs](auto &map, auto key) -> std::pair<mapped_type *, bool> {
+      auto [it, inserted] = map.emplace(std::piecewise_construct,
+                                        std::forward_as_tuple(key), targs);
+      return {&it->second, inserted};
+    };
+    return dispatch(key, callback);
   }
 }
 
@@ -400,17 +364,37 @@ template <typename... Args>
 std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::try_emplace(
   key_type key, Args &&... args) {
   // Note: Here there is the same story as in emplace() (see above).
-  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<
-    std::tuple_element_t<0, std::tuple<Args &&...>>>) {
-    return dispatch(key, try_emplace_callable<T &&>(std::forward<Args>(args)...));
+
+  using t0 = std::tuple_element_t<0, std::tuple<Args &&...>>;
+  auto targs = std::forward_as_tuple(args...);
+
+  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<t0>
+    && std::is_same_v<mapped_type, std::decay_t<t0>>) {
+    // scalar 'mapped_type &&'
+    auto callback = [&targs](auto &map, auto key) -> std::pair<mapped_type *, bool> {
+      auto [it, inserted] = map.try_emplace(key, std::forward<mapped_type>(std::get<0>(targs)));
+      return {&it->second, inserted};
+    };
+    return dispatch(key, callback);
   } else {
-    return dispatch(key, try_emplace_callable(std::forward_as_tuple(args...)));
+    // tuple of input args ('mapped_type &' is here)
+    auto callback = [&targs](auto &map, auto key) -> std::pair<mapped_type *, bool> {
+      auto func = [&](auto &&... args) -> auto {
+        return map.try_emplace(key, std::forward<decltype(args)>(args)...);
+      };
+      auto [it, inserted] = std::apply(func, targs);
+      return {&it->second, inserted};
+    };
+    return dispatch(key, callback);
   }
 }
 
 template <typename T>
 bool string_hash_table_t<T>::erase(key_type key) {
-  return dispatch(key, erase_callable());
+  auto callback = [](auto &map, auto key) -> auto {
+    return (map.erase(key));
+  };
+  return dispatch(key, callback);
 }
 
 
