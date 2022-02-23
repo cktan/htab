@@ -57,6 +57,45 @@ static std::ostream& operator<<(std::ostream &stream, const value_t *obj) {
   return obj ? stream << *obj : stream << "(null)";
 }
 
+static void exec_basic() {
+  string_hash_table_t<value_t> sht(100);  // preallocates for 100 elements
+
+  // Insert element, constructing it in-place (with global placement new)
+  std::pair<value_t *, bool> insertion = sht.try_emplace("Key #1", 0, "Value #1");
+  std::cerr << "inserted: " << std::boolalpha << insertion.second;
+  std::cerr << ", now contained value: " << *insertion.first << std::endl;
+
+  // Try insert another element with the same key, key origin is different here
+  insertion = sht.try_emplace(std::string("Key #1"), 1, "Want replace Value #1");
+  std::cerr << "inserted: " << std::boolalpha << insertion.second;
+  std::cerr << ", now contained value: " << *insertion.first << std::endl;
+
+  // Lookup value
+  auto key = "Key #1"sv;
+  value_t *val = sht.find(key);  // returns nullptr if not contained
+  std::cerr << "Lookup: " << key << " -> " << val << std::endl;
+
+  // Erase element
+  bool erased = sht.erase(key);
+  std::cerr << "Key " << key << " erased: " << std::boolalpha << erased << std::endl;
+  std::cerr << "size = " << sht.size() << std::endl;
+
+  // Insert elements via lvalue and rvalue, try_emplace() eats all
+  value_t lval(12312, "I want be lvalue");
+  value_t rval(12312, "I want be rvalue");
+  sht.try_emplace("Key #1012", lval);  // called: user ctor(), copy ctor()
+  sht.try_emplace("Key #1231", std::move(rval));  // called: move ctor()
+
+  // Process contained elements with a lambda/functor in unspecified order
+  // (printing in this case)
+  sht.for_each([](std::string_view key, const value_t &val) {
+    std::cerr << key << " -> " << val << std::endl;
+  });
+
+  // Clear all
+  sht.clear();
+}
+
 void exec_ref();
 void exec_ref() {
   //Ref. to exactly find std container behaviour:
@@ -64,42 +103,12 @@ void exec_ref() {
   std::string_view key0 = ""sv;
   std::string_view key1 = "01234567"sv;
   std::string_view key2 = "0123456701234567"sv;
-  std::string_view key3 = "012345670123456701234567"sv;
-  std::string_view key4 = "01234567012345670123456701234567"sv;
 
   value_t val1{1, "str1"};
   value_t val2{2, "str2"};
-  value_t val3{3, "str3"};
-  value_t val4{4, "str4"};
-  value_t valx{-1, "xxxx"};
 
   std::unordered_map<std::string_view, value_t> map;
   map.reserve(100);
-
-  std::unordered_map<std::string_view, value_t>::value_type mapval3(key3, val3);
-  std::unordered_map<std::string_view, value_t>::value_type mapval4(key4, val4);
-
-  auto insert = [&](std::string_view header) {
-    std::cerr << header << '\n';
-
-    std::cerr << "map.emplace(key0, 1, \"123\"):\n";
-    map.emplace(std::piecewise_construct, std::forward_as_tuple(key0),
-                std::forward_as_tuple(1, "123"));
-
-    std::cerr << "map.emplace(key1, val1):\n";
-    map.emplace(key1, val1);
-
-    std::cerr << "map.emplace(key2, std::move(val2)):\n";
-    map.emplace(key2, std::move(val2));
-
-    std::cerr << "map.insert(mapval3):\n";
-    map.insert(mapval3);
-
-    std::cerr << "map.insert(std::move(mapval4)):\n";
-    map.insert(std::move(mapval4));
-
-    std::cerr << "**** Done\n";
-  };
 
   auto try_emplace = [&](std::string_view header) {
     std::cerr << header << '\n';
@@ -114,15 +123,13 @@ void exec_ref() {
     map.try_emplace(key2, std::move(val2));
   };
 
-  insert("**** emplace/insert:");
-  insert("**** emplace/insert again:");
-  map.clear();
   try_emplace("**** try_emplace:");
   try_emplace("**** try_emplace again:");
   std::cerr << "**** Done\n";
 }
 
-static void exec() {
+void exec_test();
+void exec_test() {
   static const size_t element_count = 100;
   string_hash_table_t<value_t> sht(element_count);  // preallocates for element_count elements
   std::cerr << "size = " << sht.size() << std::endl;
@@ -150,41 +157,6 @@ static void exec() {
   value_t val4{4, "str4"};
   value_t valx{-1, "xxxx"};
 
-  auto insert = [&](std::string_view header) {
-    std::cerr << header << '\n';
-    std::pair<value_t *, bool> insertion;
-
-    insertion = sht.emplace(key0, 0, "I'm emplaced under zero key");
-    // Ref. calls: user ctor()
-    // Ref. calls if contained: user ctor(), dtor()
-    std::cerr << "inserted: " << std::boolalpha << insertion.second;
-    std::cerr << ", now contained value: " << *insertion.first << std::endl;
-
-    insertion = sht.emplace(key1, val1);
-    // Ref. calls: user ctor(), copy ctor()
-    // Ref. calls: user ctor(), copy ctor(), dtor()
-    std::cerr << "inserted: " << std::boolalpha << insertion.second;
-    std::cerr << ", now contained value: " << *insertion.first << std::endl;
-
-    insertion = sht.emplace(key2, std::move(val2));
-    // Ref. calls: move ctor()
-    // Ref. calls: move ctor(), dtor()
-    std::cerr << "inserted: " << std::boolalpha << insertion.second;
-    std::cerr << ", now contained value: " << *insertion.first << std::endl;
-
-    insertion = sht.insert(key3, val3);
-    // Ref. calls: user ctor(), copy ctor()
-    // Ref. calls: user ctor(), copy ctor(), dtor()
-    std::cerr << "inserted: " << std::boolalpha << insertion.second;
-    std::cerr << ", now contained value: " << *insertion.first << std::endl;
-
-    insertion = sht.insert(key4, std::move(val4));
-    // Ref. calls: move ctor()
-    // Ref. calls: move ctor(), dtor()
-    std::cerr << "inserted: " << std::boolalpha << insertion.second;
-    std::cerr << ", now contained value: " << *insertion.first << std::endl;
-  };
-
   auto try_emplace = [&](std::string_view header) {
     std::cerr << header << '\n';
     std::pair<value_t *, bool> insertion;
@@ -206,11 +178,20 @@ static void exec() {
     // Ref. calls if contained: nothing
     std::cerr << "inserted: " << std::boolalpha << insertion.second;
     std::cerr << ", now contained value: " << *insertion.first << std::endl;
+
+    insertion = sht.try_emplace(key3, val3);
+    // Ref. calls: user ctor(), copy ctor()
+    // Ref. calls if contained: nothing
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
+
+    insertion = sht.try_emplace(key4, val4);
+    // Ref. calls: user ctor(), copy ctor()
+    // Ref. calls if contained: nothing
+    std::cerr << "inserted: " << std::boolalpha << insertion.second;
+    std::cerr << ", now contained value: " << *insertion.first << std::endl;
   };
 
-  insert("**** emplace/insert:");
-  insert("**** emplace/insert again:");
-  sht.clear();
   try_emplace("**** try_emplace:");
   try_emplace("**** try_emplace again:");
 
@@ -271,8 +252,9 @@ static void exec() {
 
 int main(int /*argc*/, char */*argv*/[]) {
   try {
+    exec_basic();
     //exec_ref();
-    exec();
+    //exec_test();
     return 0;
   }
   catch (const std::exception &e) {

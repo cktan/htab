@@ -85,22 +85,24 @@ struct string_key24 {
   }
 };
 
+using string_key_last = string_key24;
+
 inline std::string_view ALWAYS_INLINE to_string_view(const string_key0 &) { return {}; }
 
-inline std::string_view ALWAYS_INLINE to_string_view(const string_key8 &n) {
-  return {reinterpret_cast<const char *>(&n), 8ul - (__builtin_clzll(n) >> 3)};
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key8 &key) {
+  return {reinterpret_cast<const char *>(&key), 8ul - (__builtin_clzll(key) >> 3)};
 }
 
-inline std::string_view ALWAYS_INLINE to_string_view(const string_key16 &n) {
-  return {reinterpret_cast<const char *>(&n), 16ul - (__builtin_clzll(n.b) >> 3)};
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key16 &key) {
+  return {reinterpret_cast<const char *>(&key), 16ul - (__builtin_clzll(key.b) >> 3)};
 }
 
-inline std::string_view ALWAYS_INLINE to_string_view(const string_key24 &n) {
-  return {reinterpret_cast<const char *>(&n), 24ul - (__builtin_clzll(n.c) >> 3)};
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key24 &key) {
+  return {reinterpret_cast<const char *>(&key), 24ul - (__builtin_clzll(key.c) >> 3)};
 }
 
-inline const std::string_view & ALWAYS_INLINE to_string_view(const std::string_view &s) {
-  return s;
+inline const std::string_view & ALWAYS_INLINE to_string_view(const std::string_view &key) {
+  return key;
 }
 
 struct hasher_t {
@@ -166,6 +168,7 @@ public:
 
   string_hash_table_t() {}
   string_hash_table_t(size_t elem_count) { reserve(elem_count); }  // elements, not buckets!
+  ~string_hash_table_t() { clear(); }
 
   void reserve(size_t elem_count) {
     if (elem_count < 5) {
@@ -191,20 +194,13 @@ public:
     m1.clear();
     m2.clear();
     m3.clear();
+    for (const auto &[first, second] : ms) {
+      delete[] std::data(first);
+    }
     ms.clear();
   }
 
   inline mapped_type * ALWAYS_INLINE find(key_type key);
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE insert(key_type key,
-                                                             const mapped_type &value) {
-    return insert_helper(key, value);
-  }
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE insert(key_type key,
-                                                             mapped_type &&value) {
-    return insert_helper(key, std::forward<mapped_type>(value));
-  }
-  template <typename... Args>
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, Args &&... args);
   template <typename... Args>
   inline std::pair<mapped_type *, bool> ALWAYS_INLINE try_emplace(key_type key, Args &&... args);
   inline bool ALWAYS_INLINE erase(key_type key);
@@ -236,12 +232,12 @@ private:
   std::unordered_map<detail::string_key8, T, detail::hasher_t> m1;
   std::unordered_map<detail::string_key16, T, detail::hasher_t> m2;
   std::unordered_map<detail::string_key24, T, detail::hasher_t> m3;
-  std::unordered_map<std::string_view, T, detail::hasher_t> ms;
+  std::unordered_map<key_type, T, detail::hasher_t> ms;
 
   template <typename Func>
-  inline decltype(auto) ALWAYS_INLINE dispatch(key_type x, Func func);
-  template <typename V>
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE insert_helper(key_type key, V &&value);
+  inline decltype(auto) ALWAYS_INLINE dispatch(key_type key, Func func);
+  template <typename... Args>
+  inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, Args &&... args);
 };
 
 template <typename T>
@@ -300,19 +296,6 @@ decltype(auto) string_hash_table_t<T>::dispatch(key_type key, Func func) {
 }
 
 template <typename T>
-template <typename V>
-std::pair<typename string_hash_table_t<T>::mapped_type *, bool>
-  string_hash_table_t<T>::insert_helper(key_type key, V &&value) {
-  auto callback = [&value](auto &map, auto key) -> std::pair<mapped_type *, bool> {
-    // Note: insert() way makes copy of mapped_type while constructing pair (value_type):
-    // auto [it, inserted] = map.insert({key, std::forward<V>(value))});
-    auto [it, inserted] = map.emplace(key, std::forward<V>(value));
-    return {&it->second, inserted};
-  };
-  return dispatch(key, callback);
-}
-
-template <typename T>
 typename string_hash_table_t<T>::mapped_type *string_hash_table_t<T>::find(key_type key) {
   auto callback = [](auto &map, auto key) -> mapped_type * {
     auto it = map.find(key);
@@ -363,139 +346,46 @@ template <typename T>
 template <typename... Args>
 std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::try_emplace(
   key_type key, Args &&... args) {
-  // Note: Here there is the same story as in emplace() (see above).
+  // Note: We cannot use std::unordered_map::try_emplace(), because at successful
+  // insertion the key will point to original data, but we need our own copy for big keys.
 
-  using t0 = std::tuple_element_t<0, std::tuple<Args &&...>>;
-  auto targs = std::forward_as_tuple(args...);
+  mapped_type *value = find(key);
+  if (value) return {value, false};
 
-  if constexpr (sizeof...(Args) == 1 && std::is_rvalue_reference_v<t0>
-    && std::is_same_v<mapped_type, std::decay_t<t0>>) {
-    // scalar 'mapped_type &&'
-    auto callback = [&targs](auto &map, auto key) -> std::pair<mapped_type *, bool> {
-      auto [it, inserted] = map.try_emplace(key, std::forward<mapped_type>(std::get<0>(targs)));
-      return {&it->second, inserted};
-    };
-    return dispatch(key, callback);
-  } else {
-    // tuple of input args ('mapped_type &' is here)
-    auto callback = [&targs](auto &map, auto key) -> std::pair<mapped_type *, bool> {
-      auto func = [&](auto &&... args) -> auto {
-        return map.try_emplace(key, std::forward<decltype(args)>(args)...);
-      };
-      auto [it, inserted] = std::apply(func, targs);
-      return {&it->second, inserted};
-    };
-    return dispatch(key, callback);
+  char *data_copy = nullptr;
+  if (std::size(key) > sizeof(detail::string_key_last)) {
+    data_copy = new char[std::size(key)];
+    memcpy(data_copy, std::data(key), std::size(key));
+    key = {data_copy, std::size(key)};
+  }
+
+  try {
+    return emplace(key, std::forward<Args>(args)...);
+  }
+  catch (...) {
+    delete[] data_copy;
+    throw;
   }
 }
 
 template <typename T>
 bool string_hash_table_t<T>::erase(key_type key) {
-  auto callback = [](auto &map, auto key) -> auto {
-    return (map.erase(key));
+  auto callback = [](auto &map, auto key) -> bool {
+    if constexpr (std::is_same_v<key_type, decltype(key)>) {
+      auto it = map.find(key);
+      bool ret = map.end() != it;
+      if (ret) {
+        delete[] std::data(it->first);
+        map.erase(it);
+      }
+      return ret;
+    } else {
+      return (map.erase(key));
+    }
   };
   return dispatch(key, callback);
 }
 
 
 /* ==TRASH==
-//PP: OK: return dispatch(key, emplace_callable<Args...>(std::forward<Args>(args)...));
-
-  template <typename... Args>
-  struct emplace_callable {
-    std::tuple<Args...> &&m_args;
-    emplace_callable(std::tuple<Args...> &&args) :
-      m_args(std::forward<std::tuple<Args...>>(args)) {}
-    //WARN: emplace_callable(Args &&... args) : m_args(std::forward_as_tuple(args...)) {}
-    // BAD: emplace_callable(Args &&... args) : m_args(args...) {}
-    // BAD: emplace_callable(Args &&... args) : m_args(std::forward<decltype(args)>(args)...) {}
-    template <typename Map>
-    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-//      auto [it, inserted] = map.emplace(std::piecewise_construct, std::forward_as_tuple(key),
-//                                        std::forward_as_tuple(m_args));
-//      auto [it, inserted] = map.emplace(std::piecewise_construct, std::forward_as_tuple(key),
-//                                        std::forward<std::tuple<Args...>>(m_args));
-      //auto [it, inserted] = map.emplace(key, std::forward<std::tuple<Args...>>(m_args));
-      auto [it, inserted] = map.emplace(std::piecewise_construct, std::forward_as_tuple(key),
-                                        m_args);
-      return {&it->second, inserted};
-    }
-  };
-
-template <typename Key, typename T>
-class empty_key_map_t {
-  static_assert(sizeof(Key) <= 2 * sizeof(void *),
-    "There is key passing by value - assuming small size");
-
-public:
-  using key_type = Key;
-  using mapped_type = T;
-  using value_type = std::pair<const key_type, mapped_type>;
-  using iterator = value_type *;
-
-  iterator begin() noexcept { return empty() ? end() : &m_value; }
-  iterator end() noexcept { return &m_value + 1; }
-
-  bool empty() const noexcept { return m_empty; }
-  size_t size() const noexcept { return empty() ? 0 : 1; }
-  void clear() noexcept {
-    if (m_empty) return;
-    m_value.second = {};  // set back default constructed
-    m_empty = true;
-  }
-
-  iterator find(key_type) { return empty() ? end() : begin(); }
-
-  std::pair<iterator, bool> insert(const value_type &value) {
-    bool inserted = m_empty;
-    if (m_empty) {
-      m_value.second = value.second;
-      m_empty = false;
-    }
-    return {begin(), inserted};
-  }
-
-  template <typename... Args>
-  std::pair<iterator, bool> emplace(Args &&... args) {
-    bool inserted = m_empty;
-    if (m_empty) {
-      //std::make_from_tuple<mapped_type>(args);
-      //m_value.second = mapped_type(std::forward<Args>(args)...);
-      //m_value.second = mapped_type(std::forward_as_tuple(args));
-      m_empty = false;
-    }
-    return {begin(), inserted};
-  }
-
-  size_t erase(key_type) {
-    size_t count = size();
-    clear();
-    return count;
-  }
-
-private:
-  value_type m_value;
-  bool m_empty = true;
-};
-
-  //src:
-//  struct insert_callable {
-//    const mapped_type &m_value;
-//    insert_callable(const mapped_type &value) : m_value(value) {}
-//    template <typename Map>
-//    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-//      auto [it, inserted] = map.insert({key, m_value});
-//      return {&it->second, inserted};
-//    }
-//  };
-
-//  struct insert_callable_move {
-//    mapped_type &&m_value;
-//    insert_callable_move(mapped_type &&value) : m_value(std::forward<mapped_type>(value)) {}
-//    template <typename Map>
-//    std::pair<mapped_type *, bool> ALWAYS_INLINE operator()(Map &map, typename Map::key_type key) {
-//      auto [it, inserted] = map.insert({key, std::forward<mapped_type>(m_value)});
-//      return {&it->second, inserted};
-//    }
-//  };
 */
