@@ -206,7 +206,7 @@ public:
   inline bool ALWAYS_INLINE erase(key_type key);
 
   template<typename F>
-  void for_each(F f) {
+  void for_each(F &&f) {
     for (const auto &[first, second] : m0) {
       f(detail::to_string_view(first), second);
     }
