@@ -235,14 +235,14 @@ private:
   std::unordered_map<key_type, T, detail::hasher_t> ms;
 
   template <typename Func>
-  inline decltype(auto) ALWAYS_INLINE dispatch(key_type key, Func func);
+  inline decltype(auto) ALWAYS_INLINE dispatch(key_type key, Func &&func);
   template <typename... Args>
   inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, Args &&... args);
 };
 
 template <typename T>
 template <typename Func>
-decltype(auto) string_hash_table_t<T>::dispatch(key_type key, Func func) {
+decltype(auto) string_hash_table_t<T>::dispatch(key_type key, Func &&func) {
   // Dispatch is written in a way that maximizes the performance:
   // 1. Always memcpy 8 times bytes
   // 2. Use switch case extension to generate fast dispatching table
