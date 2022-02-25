@@ -1,174 +1,224 @@
 /// \file
 /// \brief String hash table
 
+#include "utils.hpp"
 #include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <variant>
 #include <unordered_map>
 #include <smmintrin.h>
 
-#ifdef DEBUG
-  #define ALWAYS_INLINE
-#else
-  #define ALWAYS_INLINE __attribute__((__always_inline__))
-#endif
-
-#define CASE_1_8 \
-  case 1: \
-  case 2: \
-  case 3: \
-  case 4: \
-  case 5: \
-  case 6: \
-  case 7: \
-  case 8
-
-#define CASE_9_16 \
-  case 9: \
-  case 10: \
-  case 11: \
-  case 12: \
-  case 13: \
-  case 14: \
-  case 15: \
-  case 16
-
-#define CASE_17_24 \
-  case 17: \
-  case 18: \
-  case 19: \
-  case 20: \
-  case 21: \
-  case 22: \
-  case 23: \
-  case 24
+//TODO:remove ALWAYS_INLINE
 
 namespace detail {
 
 struct string_key0 {};
-static bool operator==(string_key0, string_key0) { return true; }
 
 using string_key8 = uint64_t;
 
 struct string_key16 {
   uint64_t a;
   uint64_t b;
-
-  bool operator==(const string_key16 rhs) const { return a == rhs.a && b == rhs.b; }
-  bool operator!=(const string_key16 rhs) const { return !operator==(rhs); }
-  bool operator==(const uint64_t rhs) const { return a == rhs && b == 0; }
-  bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
-
-  string_key16 & operator=(const uint64_t rhs) {
-    a = rhs;
-    b = 0;
-    return *this;
-  }
 };
 
 struct string_key24 {
   uint64_t a;
   uint64_t b;
   uint64_t c;
-
-  bool operator==(const string_key24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
-  bool operator!=(const string_key24 rhs) const { return !operator==(rhs); }
-  bool operator==(const uint64_t rhs) const { return a == rhs && b == 0 && c == 0; }
-  bool operator!=(const uint64_t rhs) const { return !operator==(rhs); }
-
-  string_key24 & operator=(const uint64_t rhs) {
-    a = rhs;
-    b = 0;
-    c = 0;
-    return *this;
-  }
 };
 
-using string_key_last = string_key24;
+struct string_key_str {  // for string keys with length > 24 chars
+  // Note: by design, string hash table and its keys may exist independently. So, we share
+  // string data (as raw char buffer, concretely).
+  std::shared_ptr<char[]> data;
+  size_t size;
+  size_t hash;
+};
 
+inline bool ALWAYS_INLINE operator==(string_key0, string_key0) { return true; }
+inline bool ALWAYS_INLINE operator==(string_key16 left, string_key16 right) {
+  return left.a == right.a && left.b == right.b;
+}
+inline bool ALWAYS_INLINE operator==(const string_key24 &left, const string_key24 &right) {
+  return left.a == right.a && left.b == right.b && left.c == right.c;
+}
+inline bool ALWAYS_INLINE operator==(const string_key_str &left, const string_key_str &right) {
+  return left.data == right.data
+    || (left.size == right.size && !memcmp(left.data.get(), right.data.get(), left.size));
+}
+
+enum key_type {
+  key_type0,
+  key_type8,
+  key_type16,
+  key_type24,
+  key_type_str
+};
+
+inline key_type ALWAYS_INLINE map_size_to_key_type(size_t size) {
+  if (size > 24) return key_type_str;
+  if (!size) return key_type0;
+  --size >>= 3;
+  if (!size) return key_type8;
+  size >>= 1;
+  if (!size) return key_type16;
+  return key_type24;
+}
+
+inline size_t ALWAYS_INLINE hash(std::string_view sv) {
+  size_t res = size_t(-1ULL);
+  size_t sz = std::size(sv);
+  const char *p = std::data(sv);
+  const char *lp = p + sz - 8; // starting pointer of the last 8 bytes segment
+  char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
+  uint64_t n[3]; // std::string_view in SSO map will have length > 24
+  memcpy(&n, p, 24);
+  res = _mm_crc32_u64(res, n[0]);
+  res = _mm_crc32_u64(res, n[1]);
+  res = _mm_crc32_u64(res, n[2]);
+  p += 24;
+  while (p + 8 < lp) {
+    memcpy(&n[0], p, 8);
+    res = _mm_crc32_u64(res, n[0]);
+    p += 8;
+  }
+  memcpy(&n[0], lp, 8);
+  n[0] >>= s;
+  res = _mm_crc32_u64(res, n[0]);
+  return res;
+}
+
+inline int ALWAYS_INLINE shifting_bits(std::string_view sv) { return (-std::size(sv) & 7) << 3; };
+
+inline string_key8 ALWAYS_INLINE to_string_key8(std::string_view sv) {
+  string_key8 ret;
+  if ((reinterpret_cast<uintptr_t>(std::data(sv)) & 2048) == 0) { // first half page
+    memcpy(&ret, std::data(sv), 8);
+    ret &= uint64_t(-1) >> shifting_bits(sv);
+  } else {
+    memcpy(&ret, std::data(sv) + std::size(sv) - 8, 8);
+    ret >>= shifting_bits(sv);
+  }
+  return ret;
+}
+inline string_key16 ALWAYS_INLINE to_string_key16(std::string_view sv) {
+  string_key16 ret;
+  memcpy(&ret.a, std::data(sv), 8);
+  memcpy(&ret.b, std::data(sv) + std::size(sv) - 8, 8);
+  ret.b >>= shifting_bits(sv);
+  return ret;
+}
+inline string_key24 ALWAYS_INLINE to_string_key24(std::string_view sv) {
+  string_key24 ret;
+  memcpy(&ret.a, std::data(sv), 16);
+  memcpy(&ret.c, std::data(sv) + std::size(sv) - 8, 8);
+  ret.c >>= shifting_bits(sv);
+  return ret;
+}
+inline string_key_str ALWAYS_INLINE to_string_key_str(std::string_view sv) {
+  char *data = new char[std::size(sv)];
+  memcpy(data, std::data(sv), std::size(sv));
+  return string_key_str{std::shared_ptr<char[]>(data), std::size(sv), hash(sv)};
+}
+
+// Warning: passing input parameter by ref. is mandatory - otherwise string_view will point to
+// stack memory! It was a subtle bug.
 inline std::string_view ALWAYS_INLINE to_string_view(const string_key0 &) { return {}; }
-
 inline std::string_view ALWAYS_INLINE to_string_view(const string_key8 &key) {
   return {reinterpret_cast<const char *>(&key), 8ul - (__builtin_clzll(key) >> 3)};
 }
-
 inline std::string_view ALWAYS_INLINE to_string_view(const string_key16 &key) {
   return {reinterpret_cast<const char *>(&key), 16ul - (__builtin_clzll(key.b) >> 3)};
 }
-
 inline std::string_view ALWAYS_INLINE to_string_view(const string_key24 &key) {
   return {reinterpret_cast<const char *>(&key), 24ul - (__builtin_clzll(key.c) >> 3)};
 }
-
-inline const std::string_view & ALWAYS_INLINE to_string_view(const std::string_view &key) {
-  return key;
+inline std::string_view ALWAYS_INLINE to_string_view(const string_key_str &key) {
+  return std::string_view(key.data.get(), key.size);
 }
 
 struct hasher_t {
   size_t ALWAYS_INLINE operator()(string_key0) const { return 0; }
-
   size_t ALWAYS_INLINE operator()(string_key8 key) const {
     size_t res = size_t(-1ULL);
     res = _mm_crc32_u64(res, key);
     return res;
   }
-
   size_t ALWAYS_INLINE operator()(string_key16 key) const {
     size_t res = size_t(-1ULL);
     res = _mm_crc32_u64(res, key.a);
     res = _mm_crc32_u64(res, key.b);
     return res;
   }
-
-  size_t ALWAYS_INLINE operator()(string_key24 key) const {
+  size_t ALWAYS_INLINE operator()(const string_key24 &key) const {
     size_t res = size_t(-1ULL);
     res = _mm_crc32_u64(res, key.a);
     res = _mm_crc32_u64(res, key.b);
     res = _mm_crc32_u64(res, key.c);
     return res;
   }
-
-  size_t ALWAYS_INLINE operator()(std::string_view key) const {
-    size_t res = size_t(-1ULL);
-    size_t sz = std::size(key);
-    const char *p = std::data(key);
-    const char *lp = p + sz - 8; // starting pointer of the last 8 bytes segment
-    char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
-    uint64_t n[3]; // std::string_view in SSO map will have length > 24
-    memcpy(&n, p, 24);
-    res = _mm_crc32_u64(res, n[0]);
-    res = _mm_crc32_u64(res, n[1]);
-    res = _mm_crc32_u64(res, n[2]);
-    p += 24;
-    while (p + 8 < lp) {
-      memcpy(&n[0], p, 8);
-      res = _mm_crc32_u64(res, n[0]);
-      p += 8;
-    }
-    memcpy(&n[0], lp, 8);
-    n[0] >>= s;
-    res = _mm_crc32_u64(res, n[0]);
-    return res;
-  }
+  size_t ALWAYS_INLINE operator()(const string_key_str &key) const { return key.hash; }
 };
 
 } // detail::
 
+// string_hash_key_t
+
+/// User side key to be used with string_hash_table_t.
+/// string_hash_key_t proxies std::string_view as user key, but in addition it copies pointed
+/// string (so, the last can be freed) and stores it in most appropriate format for fast processing.
+/// Long strings (> 24 chars) are stored along with their precalculated hashes.
+class string_hash_key_t {
+public:
+  string_hash_key_t() {}
+  string_hash_key_t(std::string_view sv) : m_data(to_data(sv)) {}
+  string_hash_key_t(const char *s) : string_hash_key_t(std::string_view(s)) {}
+  string_hash_key_t(const std::string &s) : string_hash_key_t(std::string_view(s)) {}
+
+  std::string_view to_string_view() const {
+    auto callback = [](const auto &obj) { return detail::to_string_view(obj); };
+    return std::visit(callback, m_data);
+  }
+  operator std::string_view() const { return to_string_view(); }
+
+private:
+  using data_t = std::variant<detail::string_key0, detail::string_key8, detail::string_key16,
+    detail::string_key24, detail::string_key_str>;  // must follow detail::key_type enum
+  data_t m_data;
+
+  static data_t to_data(std::string_view sv) {
+    switch (detail::map_size_to_key_type(std::size(sv))) {
+      case detail::key_type0: return detail::string_key0();
+      case detail::key_type8: return detail::to_string_key8(sv);
+      case detail::key_type16: return detail::to_string_key16(sv);
+      case detail::key_type24: return detail::to_string_key24(sv);
+      case detail::key_type_str: return detail::to_string_key_str(sv);
+      default: UNREACHABLE();
+    };
+  }
+
+  template <typename T> friend class string_hash_table_t;
+  // Used by string_hash_table_t:
+  template <typename T>
+  string_hash_key_t(const T &string_key) : m_data(string_key) {}
+  detail::key_type type() const { return detail::key_type(m_data.index()); }
+  template <size_t I>
+  auto get_string_key() const { return std::get<I>(m_data); }
+};
+
+// string_hash_table_t
+
 template <typename T>
 class string_hash_table_t {
 public:
-  // This class isn't a STL compatible container, because internally it uses
-  // containers of different types to maintain varied lenght strings. So, there
-  // are no unified types or iterator exist, and in public interface we don't use
-  // such types or iterators at all.
-
-  using key_type = std::string_view;
+  using key_type = string_hash_key_t;
   using mapped_type = T;
 
   string_hash_table_t() {}
   string_hash_table_t(size_t elem_count) { reserve(elem_count); }  // elements, not buckets!
-  ~string_hash_table_t() { clear(); }
 
   void reserve(size_t elem_count) {
     if (elem_count < 5) {
@@ -194,33 +244,30 @@ public:
     m1.clear();
     m2.clear();
     m3.clear();
-    for (const auto &[first, second] : ms) {
-      delete[] std::data(first);
-    }
     ms.clear();
   }
 
-  inline mapped_type * ALWAYS_INLINE find(key_type key);
+  mapped_type *find(const key_type &key);
   template <typename... Args>
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE try_emplace(key_type key, Args &&... args);
-  inline bool ALWAYS_INLINE erase(key_type key);
+  std::pair<mapped_type *, bool> try_emplace(const key_type &key, Args &&... args);
+  bool erase(const key_type &key);
 
   template<typename F>
   void for_each(F &&f) {
     for (const auto &[first, second] : m0) {
-      f(detail::to_string_view(first), second);
+      f(first, second);
     }
     for (const auto &[first, second] : m1) {
-      f(detail::to_string_view(first), second);
+      f(first, second);
     }
     for (const auto &[first, second] : m2) {
-      f(detail::to_string_view(first), second);
+      f(first, second);
     }
     for (const auto &[first, second] : m3) {
-      f(detail::to_string_view(first), second);
+      f(first, second);
     }
     for (const auto &[first, second] : ms) {
-      f(detail::to_string_view(first), second);
+      f(first, second);
     }
   }
 
@@ -232,71 +279,29 @@ private:
   std::unordered_map<detail::string_key8, T, detail::hasher_t> m1;
   std::unordered_map<detail::string_key16, T, detail::hasher_t> m2;
   std::unordered_map<detail::string_key24, T, detail::hasher_t> m3;
-  std::unordered_map<key_type, T, detail::hasher_t> ms;
+  std::unordered_map<detail::string_key_str, T, detail::hasher_t> ms;
 
   template <typename Func>
-  inline decltype(auto) ALWAYS_INLINE dispatch(key_type key, Func &&func);
+  inline decltype(auto) ALWAYS_INLINE dispatch(const key_type &key, Func &&func);
   template <typename... Args>
-  inline std::pair<mapped_type *, bool> ALWAYS_INLINE emplace(key_type key, Args &&... args);
+  std::pair<mapped_type *, bool> emplace(const key_type &key, Args &&... args);
 };
 
 template <typename T>
 template <typename Func>
-decltype(auto) string_hash_table_t<T>::dispatch(key_type key, Func &&func) {
-  // Dispatch is written in a way that maximizes the performance:
-  // 1. Always memcpy 8 times bytes
-  // 2. Use switch case extension to generate fast dispatching table
-  // 3. [DELETED] Combine hash computation along with key loading
-  // 4. Funcs are named callables that can be force_inlined
-  // NOTE: It relies on Little Endianness and SSE4.2
-  static constexpr detail::string_key0 key0;
-  size_t sz = std::size(key);
-  const char *p = std::data(key);
-  char s = (-sz & 7) * 8; // pending bits that needs to be shifted out
-  union {
-    detail::string_key8 k8;
-    detail::string_key16 k16;
-    detail::string_key24 k24;
-    uint64_t n[3];
+decltype(auto) string_hash_table_t<T>::dispatch(const key_type &key, Func &&func) {
+  switch (key.type()) {
+    case detail::key_type0: return func(m0, key.get_string_key<detail::key_type0>());
+    case detail::key_type8: return func(m1, key.get_string_key<detail::key_type8>());
+    case detail::key_type16: return func(m2, key.get_string_key<detail::key_type16>());
+    case detail::key_type24: return func(m3, key.get_string_key<detail::key_type24>());
+    case detail::key_type_str: return func(ms, key.get_string_key<detail::key_type_str>());
+    default: UNREACHABLE();
   };
-  switch (sz) {
-    case 0: {
-      return func(m0, key0);
-    }
-    CASE_1_8 : {
-      if ((reinterpret_cast<uintptr_t>(p) & 2048) == 0) { // first half page
-        memcpy(&n[0], p, 8);
-        n[0] &= -1ul >> s;
-      }
-      else {
-        const char *lp = std::data(key) + std::size(key) - 8;
-        memcpy(&n[0], lp, 8);
-        n[0] >>= s;
-      }
-      return func(m1, k8);
-    }
-    CASE_9_16 : {
-      memcpy(&n[0], p, 8);
-      const char *lp = std::data(key) + std::size(key) - 8;
-      memcpy(&n[1], lp, 8);
-      n[1] >>= s;
-      return func(m2, k16);
-    }
-    CASE_17_24 : {
-      memcpy(&n[0], p, 16);
-      const char *lp = std::data(key) + std::size(key) - 8;
-      memcpy(&n[2], lp, 8);
-      n[2] >>= s;
-      return func(m3, k24);
-    }
-    default: {
-      return func(ms, key);
-    }
-  }
 }
 
 template <typename T>
-typename string_hash_table_t<T>::mapped_type *string_hash_table_t<T>::find(key_type key) {
+typename string_hash_table_t<T>::mapped_type *string_hash_table_t<T>::find(const key_type &key) {
   auto callback = [](auto &map, auto key) -> mapped_type * {
     auto it = map.find(key);
     return map.end() != it ? &it->second : nullptr;
@@ -307,7 +312,7 @@ typename string_hash_table_t<T>::mapped_type *string_hash_table_t<T>::find(key_t
 template <typename T>
 template <typename... Args>
 std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::emplace(
-  key_type key, Args &&... args) {
+  const key_type &key, Args &&... args) {
   // Note: There is failed to determine rvalue ref. after forwarding as tuple, i.e. when
   // input args start from rvalue (obtained from std::move()), the following returns false:
   // auto m_args = std::forward_as_tuple(args...);
@@ -345,43 +350,17 @@ std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_tabl
 template <typename T>
 template <typename... Args>
 std::pair<typename string_hash_table_t<T>::mapped_type *, bool> string_hash_table_t<T>::try_emplace(
-  key_type key, Args &&... args) {
-  // Note: We cannot use std::unordered_map::try_emplace(), because at successful
-  // insertion the key will point to original data, but we need our own copy for big keys.
-
+  const key_type &key, Args &&... args) {
+  // Note: Alternatively, just use std::unordered_map::try_emplace().
   mapped_type *value = find(key);
   if (value) return {value, false};
-
-  char *data_copy = nullptr;
-  if (std::size(key) > sizeof(detail::string_key_last)) {
-    data_copy = new char[std::size(key)];
-    memcpy(data_copy, std::data(key), std::size(key));
-    key = {data_copy, std::size(key)};
-  }
-
-  try {
-    return emplace(key, std::forward<Args>(args)...);
-  }
-  catch (...) {
-    delete[] data_copy;
-    throw;
-  }
+  return emplace(key, std::forward<Args>(args)...);
 }
 
 template <typename T>
-bool string_hash_table_t<T>::erase(key_type key) {
+bool string_hash_table_t<T>::erase(const key_type &key) {
   auto callback = [](auto &map, auto key) -> bool {
-    if constexpr (std::is_same_v<key_type, decltype(key)>) {
-      auto it = map.find(key);
-      bool ret = map.end() != it;
-      if (ret) {
-        delete[] std::data(it->first);
-        map.erase(it);
-      }
-      return ret;
-    } else {
-      return (map.erase(key));
-    }
+    return (map.erase(key));
   };
   return dispatch(key, callback);
 }

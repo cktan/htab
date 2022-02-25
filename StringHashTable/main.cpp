@@ -57,7 +57,12 @@ static std::ostream& operator<<(std::ostream &stream, const value_t *obj) {
   return obj ? stream << *obj : stream << "(null)";
 }
 
-static void exec_basic() {
+static std::ostream& operator<<(std::ostream &stream, const string_hash_key_t &obj) {
+  return stream << obj.to_string_view();
+}
+
+void exec_basic();
+void exec_basic() {
   string_hash_table_t<value_t> sht(100);  // preallocates for 100 elements
 
   // Insert element, constructing it in-place (with global placement new)
@@ -88,7 +93,7 @@ static void exec_basic() {
 
   // Process contained elements with a lambda/functor in unspecified order
   // (printing in this case)
-  sht.for_each([](std::string_view key, const value_t &val) {
+  sht.for_each([](string_hash_key_t &&key, const value_t &val) {
     std::cerr << key << " -> " << val << std::endl;
   });
 
@@ -237,7 +242,7 @@ void exec_test() {
   // Print values
 
   std::cerr << "**** Print values:\n";
-  sht.for_each([](std::string_view key, const value_t &val) {
+  sht.for_each([](string_hash_key_t &&key, const value_t &val) {
     std::cerr << key << " -> " << val << std::endl;
   });
 
@@ -269,48 +274,4 @@ int main(int /*argc*/, char */*argv*/[]) {
 
 
 /* ==TRASH==
-    //Ref. to exactly find std container behaviour:
-    std::unordered_map<std::string_view, value_t> map;
-    map.reserve(100);
-
-    std::unordered_map<std::string_view, value_t>::value_type mapval3(key3, val3);
-    std::unordered_map<std::string_view, value_t>::value_type mapval4(key4, val4);
-
-    // Insert
-
-    std::cerr << "map.emplace(key0, 1, \"123\"):\n";
-    map.emplace(std::piecewise_construct, std::forward_as_tuple(key0),
-                std::forward_as_tuple(1, "123"));
-
-    std::cerr << "map.emplace(key1, val1):\n";
-    map.emplace(key1, val1);
-
-    std::cerr << "map.emplace(key2, std::move(val2)):\n";
-    map.emplace(key2, std::move(val2));
-
-    std::cerr << "map.insert(mapval3):\n";
-    map.insert(mapval3);
-
-    std::cerr << "map.insert(std::move(mapval4)):\n";
-    map.insert(std::move(mapval4));
-
-    // Insert again
-
-    std::cerr << "map.emplace(key0, 1, \"123\"):\n";
-    map.emplace(std::piecewise_construct, std::forward_as_tuple(key0),
-                std::forward_as_tuple(1, "123"));
-
-    std::cerr << "map.emplace(key1, val1):\n";
-    map.emplace(key1, val1);
-
-    std::cerr << "map.emplace(key2, std::move(val2)):\n";
-    map.emplace(key2, std::move(val2));
-
-    std::cerr << "map.insert(mapval3):\n";
-    map.insert(mapval3);
-
-    std::cerr << "map.insert(std::move(mapval4)):\n";
-    map.insert(std::move(mapval4));
-
-    return 0;
 */
